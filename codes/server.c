@@ -16,9 +16,11 @@ void err_dump(char* str){
 	perror(str);
 }
 
+//PROTOTYPE
 int print_ip(struct sockaddr_in* cli_addr);
-
 void parse_command(char* command, int sockfd);
+int num_of_pipe(char* line);
+void process1(char* command, int* arr); //move the pipe number from command into arr
 
 int main (int argc, char* argv[]){
 	int socketfd, newsocketfd, cli_addr_size, childpid;
@@ -105,29 +107,48 @@ int print_ip(struct sockaddr_in* cli_addr){
 }
 
 void parse_command(char* command,int sockfd){
-//	char* line;
-//    const char delim[3]={' ',"\r","\n"};
-//	line = strtok(command,"\r\n");
-	int status;
+	int i,status,n_pipe,pcount;
 	pid_t pid;
-	int pipefd[2];
-	pipe(pipefd);
-//	while(line != NULL){
+	int** pipefd;
+	char* instruct;
+	int* n_arr;
+
+	n_pipe = num_of_pipe(command);
+	pipefd = malloc(n_pipe * sizeof(int*));
+	for(i=0;i<n_pipe;i++){
+		pipefd[i] = malloc(2 * sizeof(int));
+		pipe(pipefd[i]);
+	}
+
+	n_arr = malloc((n_pipe)*sizeof(int));
+	pcount=0; 					//count the order of command
+	
+	process1(command, n_arr); 	//process the pipe n into array
+	n_arr[n_pipe-1] = 1; 		//last pipe is always 1	
+
+	instruct = strtok(command,"|\r\n");
+	while(instruct != NULL){
+	printf("instruct %d: %s\n",pcount,instruct);
 //		printf("line: %s#\n",line);
 		pid = fork();
-		printf("pid: %d\n",pid);
 		if(pid==0){ //child
-		int i;
 			char* token;
-			close(pipefd[0]); //close reading end in the child
-			dup2(pipefd[1],1);//send stdout to the pipe
-			dup2(pipefd[1],2);//send stderr to the pipe
-			close(pipefd[1]); //this descriptor no longer needed
-		i=fork();
-		printf("next pid: %d\n",i);
-			token = strtok(command," \r\n");
-			while(token != NULL){//or not equal to |	
-			//	printf("token: ##%s##\n",token);
+			if(pcount==0){ 			//first instruction
+		   		close(pipefd[pcount][0]); 
+		   		dup2(pipefd[pcount][1],1);
+		   		dup2(pipefd[pcount][1],2);
+		   		close(pipefd[pcount][1]); 
+			}
+			else{
+				close(pipefd[pcount][0]); 		//close reading end in the child
+				dup2(pipefd[pcount-1][0],0);	//direct the stdin from previous pipefd
+		   		dup2(pipefd[pcount + n_arr[pcount] - 1][1],1);		//direct the stdout to the pipefd[pcount]
+		   		dup2(pipefd[pcount + n_arr[pcount] - 1][1],2);		//direct the stderr to the pipefd[pcout]
+		   		close(pipefd[pcount][1]);		//wont need this write description 
+			}
+			token = strtok(instruct," \r\n");
+			while(token != NULL){				//FIXME "if" should be enough
+				printf("token: ##%s##\n",token);
 				if(strcmp(token,"ls")==0){
 					execlp(token,token,0,0);
 
@@ -149,35 +170,85 @@ void parse_command(char* command,int sockfd){
 					args[0] = token;
 					args[1] = strtok(NULL," \r\n");
 					args[2] = strtok(NULL," \r\n");
-					printf("arg012 %s %s %s\n",args[0],args[1],args[2]);
+					//printf("arg012 %s %s %s\n",args[0],args[1],args[2]);
 					execlp(args[0],args[0],args[1],args[2],NULL);
 				
-				}else{
+				}else if(strcmp(token,"number")==0){
+					char* args[2];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+					//execlp(args[0],args[0],args[1],NULL);
+					execl("./number",args[0],args[1],NULL);
+				}else if(strcmp(token,"noop")==0){
+					execlp(token,token,NULL);
+				}else if(strcmp(token,"removetag")==0){
+					char* args[2];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+					//execlp(args[0],args[0],args[1],NULL);
+					execl("./removetag",args[0],args[1],NULL);
+				}else if(strcmp(token,"removetag0")==0){
+					execlp(token,token,NULL);
+				}
+				else{
 					printf("Unknown Command: %s\n",token);
 				}	
 				token = strtok(NULL," \r\n");
 			}
 			_exit(EXIT_FAILURE);
-	
-		}else if(pid<0){ 
+		}
+		else if(pid<0){ 
 			perror("parse command: fork failed");
 			status = -1;
-		}else{ //parent
-			if(waitpid(pid,&status,0) != pid)
-				status = -1;
-
-			char buffer[1024];
-			bzero(buffer,1024);
-
-			close(pipefd[1]);
-			while(read(pipefd[0],buffer, sizeof(buffer)) != 0){
-				//TODO send back to client
-				printf("%s",buffer);
-
-				write(sockfd,buffer,sizeof(buffer));
+		}
+		else{ //parent
+			printf("parent waiting\n");
+			waitpid(pid,&status,0);
+			if(status == 1){
+				perror("parent: child process terminated with an error\n");
 			}
-			bzero(buffer,1024);
+			printf("parent done waiting\n");
+
+			instruct = strtok(NULL,"|\r\n");
+			close(pipefd[pcount][1]);
+			pcount++; 							//instruction counter
 			//line = strtok(NULL,"\r\n");
 		}
-	//}
+	}
+	
+	char buffer[1024];
+	bzero(buffer,1024);
+	while(read(pipefd[pcount-1][0],buffer, sizeof(buffer)) != 0){
+		printf("%s",buffer);
+		write(sockfd,buffer,sizeof(buffer));
+	}
+	bzero(buffer,1024);
+	printf("send back done\n");
+
+}
+
+int num_of_pipe(char* line){
+	int i,n;
+	n=0;
+	for(i=0; i<strlen(line); i++){
+		if(line[i]=='|') n++;		
+	}
+
+return n+1;
+}
+
+void process1(char* command, int* arr){
+	char* it=command;
+	int i,j;
+	j=0;
+	for(i=0; i<strlen(command); i++){
+		if(*(it+i) == '|'){
+			if( *(it+i+1) == ' ')
+				arr[j++] = 1;
+			else{
+				arr[j++] = atoi(it+i+1);
+				*(it+i+1) = ' ';
+			}
+		}
+	}
 }
