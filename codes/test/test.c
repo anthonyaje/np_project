@@ -13,21 +13,50 @@ int num_of_pipe(char* line){
 return n+1;
 }
 
+
 int main(){
-char a[10] = "abc";
 char token[15]={};
-int i,j;
+int i,j,pid;
+int pipefd[2];
 
-token[0]='x';
-token[1]='y';
-token[2]='z';
+pipe(pipefd);
 
-strcat(token,a);
+write(pipefd[1],"hello",5);
 
-//puts(token);
+pid = fork();
+if(pid==0){
+	printf("child begin\n");
+	int temp_pipe[2];
+	pipe(temp_pipe);
+	
+	write(temp_pipe[1],"world",5);
+	
+	char buf1[15]={};
+	char buf2[15]={};
+	read(pipefd[0],buf1,15);
+	read(temp_pipe[0],buf2,15);
+	printf("buf1: [%s]\n",buf1);
+	printf("buf2: [%s]\n",buf2);
+	strcat(buf1,buf2);
+	write(pipefd[1],buf1,15);
+	read(pipefd[0],buf1,15);
+	strcat(buf1,buf2);
+	write(pipefd[1],buf1,15);
+	close(pipefd[0]);
+	close(pipefd[1]);
+	close(temp_pipe[0]);
+	close(temp_pipe[1]);
+	printf("child end\n");
+}
+else{
+	waitpid(pid,&i,0);
+	char buffer[20]={};
+	close(pipefd[1]);
+	read(pipefd[0],buffer,20);
+//	printf("buf1: [%s]\n",buf1);
+//	printf("buf2: [%s]\n",buf2);
+	printf("buffer: [%s]\n",buffer);
 
-for(i=0; i<10; i++){
-	printf("%c",token[i]);
 }
 
 

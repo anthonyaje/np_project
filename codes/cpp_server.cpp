@@ -8,22 +8,27 @@
 #include <netinet/in.h>
 //#include <arpa/inet.h>
 #include <unistd.h>
+#include <vector>
 
 #define PORTNUM 8867
 #define BUFFER_SIZE 256
 
 using namespace std;
 
+//GLOBAL
+vector<pair<int*,int> > pipeVec;
+
 void err_dump(char* str){
 	perror(str);
 }
-
 //PROTOTYPE
 int print_ip(struct sockaddr_in* cli_addr);
 void parse_command(char* command, int sockfd);
 int num_of_pipe(char* line);
 void process1(char* command, int* arr); //move the pipe number from command into arr
 void exec_comm(char* token);
+void check_update_vec();
+void remove_zero_vec();
 
 int main (int argc, char* argv[]){
 	int socketfd, newsocketfd, cli_addr_size, childpid;
@@ -106,35 +111,46 @@ int print_ip(struct sockaddr_in* cli_addr){
 void parse_command(char* command,int sockfd){
 	int i,status,n_pipe,pcount;
 	pid_t pid;
-	int** pipefd;
+	//int** pipefd;
 	char* instruct;
 	int* n_arr;
 
 	n_pipe = num_of_pipe(command);
 	n_arr = (int*) malloc((n_pipe)*sizeof(int));
-	pipefd = (int**) malloc(n_pipe * sizeof(int*));
-	for(i=0;i<n_pipe;i++){
-		pipefd[i] = (int *) malloc(2 * sizeof(int));
-		pipe(pipefd[i]);
-	}
+	//pipefd = (int**) malloc(n_pipe * sizeof(int*));
+	//for(i=0;i<n_pipe;i++){
+	//	pipefd[i] = (int *) malloc(2 * sizeof(int));
+	//	pipe(pipefd[i]);
+	//}
 	process1(command, n_arr); 	//process the pipe n number into array
 	pcount=0; 					//count the order of command
 	n_arr[n_pipe-1] = 1; 		//last pipe is always 1	
 
 	instruct = strtok(command,"|\r\n");
 	while(instruct != NULL){
-	printf("instruct %d: [%s]\n",pcount,instruct);
+		pair<int*,int> pipe_pair;
+		pipeVec.push_back(pipe_pair);  	//push to pipe 
+		pipeVec.back().first = new int[2];
+		pipeVec.back().second = n_arr[pcount];
+		pipe(pipeVec.back().first);
+
+		printf("instruct %d: [%s]\n",pcount,instruct);
 		pid = fork();
 		if(pid==0){ //child
 			char* token;
-			if(pcount!=0){ 						//not first instruction
-				dup2(pipefd[pcount-1][0],0);	//direct the stdin from previous pipefd
-			}
-			close(pipefd[pcount][0]); 			//close reading end in the child
-			dup2(pipefd[pcount + n_arr[pcount] - 1][1],1);		//direct the stdout to the pipefd[pcount]
-			dup2(pipefd[pcount + n_arr[pcount] - 1][1],2);		//direct the stderr to the pipefd[pcout]
-			close(pipefd[pcount][1]);			//wont need this write description 
-			
+
+
+			check_update_vec();				//-- the current element in pipe
+
+			//if(pcount != (n_pipe-1)){
+				close(pipeVec.back().first[0]);
+				//dup2(pipeVec.back().first[1],1);		//direct the stdout 
+				dup2(pipeVec.back().first[1],2);		//direct the stdout 
+				close(pipeVec.back().first[1]);
+	cout<<"vector size: "<<pipeVec.size()<<endl;
+	cout<<"vector back n: "<<pipeVec.back().second<<endl;
+			//}
+
 			token = strtok(instruct," \r\n");
 			while(token != NULL){				//FIXME "if" should be enough
 				printf("token: ##%s##\n",token);
@@ -148,7 +164,7 @@ void parse_command(char* command,int sockfd){
 			status = -1;
 		}
 		else
-		{ //parent
+		{ 	//parent
 			printf("parent waiting\n");
 			//waitpid(pid,&status,0);
 			wait(&status);
@@ -156,22 +172,47 @@ void parse_command(char* command,int sockfd){
 				perror("parent: child process terminated with an error\n");
 			}
 			printf("parent done waiting\n");
-
-			instruct = strtok(NULL,"|\r\n");
-			close(pipefd[pcount][1]);
+		  cout<<"p1 vector size: "<<pipeVec.size()<<endl;
+			remove_zero_vec();
+			close(pipeVec.back().first[1]);
 			pcount++; 							//instruction counter
+			instruct = strtok(NULL,"|\r\n");
+		  cout<<"p2 vector size: "<<pipeVec.size()<<endl;
 		}
 	}
+	cout<<"DONE processing"<<endl;
+	cout<<"vector size: "<<pipeVec.size()<<endl;
+	cout<<"vector back n: "<<pipeVec.back().second<<endl;
 	
 	char buffer[1024];
 	bzero(buffer,1024);
-	while(read(pipefd[pcount-1][0],buffer, sizeof(buffer)) != 0){
-		printf("%s",buffer);
+	while(read(pipeVec.back().first[0],buffer, sizeof(buffer)) != 0){
+		pipeVec.erase(pipeVec.end());
+		printf("SERVER:\n%s",buffer);
 		write(sockfd,buffer,sizeof(buffer));
 	}
 	bzero(buffer,1024);
 	printf("send back done\n");
 
+}
+
+void remove_zero_vec(){
+	for(int i=0; i<pipeVec.size(); i++){
+		cout<<"pipeVec["<<i<<"]"<<pipeVec[i].second<<endl;
+		if(pipeVec[i].second == 0){
+			cout<<"remove"<<i<<endl;
+			pipeVec.erase(pipeVec.begin()+i);
+		}
+	}	
+}
+
+void check_update_vec(){
+	for(int i=0; i<pipeVec.size(); i++){
+		if(--pipeVec[i].second == 0){
+			dup2(pipeVec[i].first[0],0);
+			//pipeVec.erase(pipeVec.begin()+i);
+		}
+	}	
 }
 
 int num_of_pipe(char* line){
