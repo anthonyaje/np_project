@@ -11,7 +11,6 @@
 
 #define PORTNUM 8867
 #define BUFFER_SIZE 256
-#define MAX_LINE_CHAR 100
 
 void err_dump(char* str){
 	perror(str);
@@ -114,7 +113,6 @@ void parse_command(char* command,int sockfd){
 	int** pipefd;
 	char* instruct;
 	int* n_arr;
-	int* dirty_bit;    
 
 	n_pipe = num_of_pipe(command);
 	pipefd = malloc(n_pipe * sizeof(int*));
@@ -124,7 +122,6 @@ void parse_command(char* command,int sockfd){
 	}
 
 	n_arr = malloc((n_pipe)*sizeof(int));
-	dirty_bit = (int*) calloc((n_pipe),sizeof(int));  // 1:written 0:clean
 	pcount=0; 					//count the order of command
 	
 	process1(command, n_arr); 	//process the pipe n into array
@@ -136,77 +133,28 @@ void parse_command(char* command,int sockfd){
 		pid = fork();
 		if(pid==0){ //child
 			char* token;
-			int temp_pipe[2];
-			pipe(temp_pipe);
-
-			if(pcount==0){ 			//first instruction
-				dirty_bit[pcount]=1;
-		   		close(pipefd[pcount][0]); 
-		   		dup2(pipefd[pcount][1],1);
-		   		dup2(pipefd[pcount][1],2);
-		   		close(pipefd[pcount][1]); 
-			}
-			else{
-				close(pipefd[pcount][0]); 		//close reading end in the child
-				//prev pipe
-				if(dirty_bit[pcount-1]==0){ 				//the pipe is clean
-					//FIXME
-					// no need to read from pipe, stdin redirect to??
-					dup2(pipefd[pcount-1][0],0);	//direct the stdin from previous pipefd
-				}
-				else{							//the pipe is dirty
-					//TODO: dirty pipe need to be process: copy, concatenate, writeback
-					dup2(pipefd[pcount-1][0],0);	//direct the stdin from previous pipefd
-											
-				}
-				//next pipe
-				if(dirty_bit[pcount + n_arr[pcount] - 1] == 0){
-		   			dup2(pipefd[pcount + n_arr[pcount] - 1][1],1);		//direct the stdout to the pipefd[pcount]
-		   			dup2(pipefd[pcount + n_arr[pcount] - 1][1],2);		//direct the stderr to the pipefd[pcout]
-				}
-				else{
-					//TODO: dirty pipe need to be process: copy, concatenate, writeback
-					//close(temp_pipe[0]);
-					dup2(temp_pipe[1],1);
-					dup2(temp_pipe[1],2);
-					close(temp_pipe[1]);
-				}
-		   		close(pipefd[pcount][1]);		//wont need this write description 
-				
-				/*
-				close(pipefd[pcount][0]); 		//close reading end in the child
+			if(pcount!=0){ 						//not first instruction
 				dup2(pipefd[pcount-1][0],0);	//direct the stdin from previous pipefd
-		   		dup2(pipefd[pcount + n_arr[pcount] - 1][1],1);		//direct the stdout to the pipefd[pcount]
-		   		dup2(pipefd[pcount + n_arr[pcount] - 1][1],2);		//direct the stderr to the pipefd[pcout]
-		   		close(pipefd[pcount][1]);		//wont need this write description 
-				*/
 			}
-		
+			close(pipefd[pcount][0]); 			//close reading end in the child
+			dup2(pipefd[pcount + n_arr[pcount] - 1][1],1);		//direct the stdout to the pipefd[pcount]
+			dup2(pipefd[pcount + n_arr[pcount] - 1][1],2);		//direct the stderr to the pipefd[pcout]
+			close(pipefd[pcount][1]);			//wont need this write description 
+			
 			token = strtok(instruct," \r\n");
 			while(token != NULL){				//FIXME "if" should be enough
-				printf("token: ##%s##\n",token);
-				exec_comm(token);				//compare the string and execute it
+				//printf("token: ##%s##\n",token);
+				exec_comm(token);
 				token = strtok(NULL," \r\n");
 			}
-			
-			if((pcount!=0) && (dirty_bit[pcount + n_arr[pcount] - 1]!=0)){
-				//new pipe, write stdout.. read old data to buffer and append with the new datam write back to the old pipe			
-				char t1_buff[MAX_LINE_CHAR]={};
-				char t2_buff[MAX_LINE_CHAR]={};
-				read(pipefd[pcount + n_arr[pcount] - 1][0], t1_buff, MAX_LINE_CHAR);
-				read(temp_pipe[0], t2_buff, MAX_LINE_CHAR);
-				close(temp_pipe[0]);
-				strcat(t1_buff,t2_buff);
-				write(pipefd[pcount + n_arr[pcount] - 1][0], t1_buff, MAX_LINE_CHAR);
-			}	
-
 			_exit(EXIT_FAILURE);
 		}
 		else if(pid<0){ 
 			perror("parse command: fork failed");
 			status = -1;
 		}
-		else{ //parent
+		else
+		{ //parent
 			printf("parent waiting\n");
 			waitpid(pid,&status,0);
 			if(status == 1){
@@ -217,7 +165,6 @@ void parse_command(char* command,int sockfd){
 			instruct = strtok(NULL,"|\r\n");
 			close(pipefd[pcount][1]);
 			pcount++; 							//instruction counter
-			//line = strtok(NULL,"\r\n");
 		}
 	}
 	
@@ -259,48 +206,51 @@ void process1(char* command, int* arr){
 }
 
 void exec_comm(char* token){
-	if(strcmp(token,"ls")==0){
-		execlp(token,token,0,0);
+				if(strcmp(token,"ls")==0){
+					execlp(token,token,0,0);
 
-	}else if(strcmp(token,"cat")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		execlp(args[0],args[0],args[1],NULL);
+				}else if(strcmp(token,"cat")==0){
+					char* args[2];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+					execlp(args[0],args[0],args[1],NULL);
 
-	}else if(strcmp(token,"printenv")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		execlp(args[0],args[0],args[1],NULL);
-
-	}else if(strcmp(token,"setenv")==0){
-		char* args[3];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		args[2] = strtok(NULL," \r\n");
-		//printf("arg012 %s %s %s\n",args[0],args[1],args[2]);
-		execlp(args[0],args[0],args[1],args[2],NULL);
-
-	}else if(strcmp(token,"number")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		//execlp(args[0],args[0],args[1],NULL);
-		execl("./number",args[0],args[1],NULL);
-	}else if(strcmp(token,"noop")==0){
-		execlp(token,token,NULL);
-	}else if(strcmp(token,"removetag")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		//execlp(args[0],args[0],args[1],NULL);
-		execl("./removetag",args[0],args[1],NULL);
-	}else if(strcmp(token,"removetag0")==0){
-		execlp(token,token,NULL);
-	}
-	else{
-		printf("Unknown Command: %s\n",token);
-	}
-
+				}else if(strcmp(token,"printenv")==0){
+					char* args[2];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+				//	execlp(args[0],args[0],args[1],NULL);
+				//	printf("%s",getenv(args[1]));
+					puts(getenv(args[1]));
+					
+				}else if(strcmp(token,"setenv")==0){
+					//printf("here is setenv\n");
+					char* args[3];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+					args[2] = strtok(NULL," \r\n");
+					//printf("arg012 %s %s %s\n",args[0],args[1],args[2]);
+					setenv(args[1],args[2],1);
+					//execlp(args[0],args[0],args[1],args[2],NULL);
+				
+				}else if(strcmp(token,"number")==0){
+					char* args[2];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+					//execlp(args[0],args[0],args[1],NULL);
+					execl("./number",args[0],args[1],NULL);
+				}else if(strcmp(token,"noop")==0){
+					execlp(token,token,NULL);
+				}else if(strcmp(token,"removetag")==0){
+					char* args[2];
+					args[0] = token;
+					args[1] = strtok(NULL," \r\n");
+					//execlp(args[0],args[0],args[1],NULL);
+					execl("./removetag",args[0],args[1],NULL);
+				}else if(strcmp(token,"removetag0")==0){
+					execlp(token,token,NULL);
+				}
+				else{
+					printf("Unknown Command: %s\n",token);
+				}
 }	
