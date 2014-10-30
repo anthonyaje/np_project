@@ -15,14 +15,19 @@ return n+1;
 
 
 int main(){
-char token[15]={};
+char token[15]={""};
 int i,j,pid;
 int pipefd[2];
 
-pipe(pipefd);
+token[0]='a';
+token[1]='j';
+token[2]='e';
 
-write(pipefd[1],"hello",5);
+printf("sizeof token: %d", (strlen(token)));
+//pipe(pipefd);
 
+//write(pipefd[1],"hello",5);
+/*
 pid = fork();
 if(pid==0){
 	printf("child begin\n");
@@ -58,7 +63,7 @@ else{
 	printf("buffer: [%s]\n",buffer);
 
 }
-
+*/
 
 return 0;
 }
