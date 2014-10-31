@@ -26,11 +26,12 @@ int print_ip(struct sockaddr_in* cli_addr);
 void process_command(char* command, int sockfd);
 int num_of_pipe(char* line);
 void takeout_pipe_n(char* command, int* arr); //move the pipe number from command into arr
-void exec_comm(char* token, char** arg);
+int exec_comm(char* token, char** arg);
 void decrement_vec();
-void check_dup_exec_vec(char* token, char** arg);
+int check_dup_exec_vec(char* token, char** arg);
 void remove_zero_vec();
 void parse_line(char** ,char*);
+int validate_command(char* token);
 
 int main (int argc, char* argv[]){
 	int socketfd, newsocketfd, cli_addr_size, childpid;
@@ -125,18 +126,20 @@ void process_command(char* command,int sockfd){
 	char** inst_arr;
 	char* arg[100]={};
 
-	pcount=0; 					//count the order of command
+	pcount=0; 							//count the order of command
 	n_pipe = num_of_pipe(command);
 	n_arr = (int*) malloc((n_pipe)*sizeof(int));
 	inst_arr = 	(char**) malloc((n_pipe)*sizeof(char*));
-
+	
+	puts(command);
 	takeout_pipe_n(command, n_arr); 	//process the pipe n number into array
+	puts(command);
 	parse_line(inst_arr, command);		//cut the line @ | to array
-	n_arr[n_pipe-1] = 1; 				//last pipe is always 1	
-
-	for(int i=0; i<n_pipe; i++){
-		printf("inst_arr[%d]: %s\n",i, inst_arr[i]);
+	for(int i=0; i<n_pipe;i++){
+		cout<<"n_arr[i]: "<<n_arr[i]<<endl;
 	}
+	//FIXME
+//	n_arr[n_pipe-1] = 1; 				//last pipe is always 1	
 
 	for(int i=0; i<n_pipe; i++){
 		token = strtok(inst_arr[i]," \n");
@@ -147,12 +150,26 @@ void process_command(char* command,int sockfd){
 		}
 		printf("token: [%s] arg0: [%s] arg1[%s]\n",token,arg[0],arg[1]);
 
-		decrement_vec();				//-- the current element in pipe
+		if((token==NULL)){
+			cerr<<"Token NULL"<<endl;
+			return;			
+		}
 
+		if(validate_command(arg[0])==0){
+			char unknowncomm [BUFFER_SIZE] = "Unknown Command: [";
+			strcat(unknowncomm,arg[0]);
+			strcat(unknowncomm, "]\n");
+			write(sockfd,unknowncomm,sizeof(unknowncomm));
+			cout<<unknowncomm<<endl;
+			return;
+		}
+
+		
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
 		pipeVec.back().first = new int[2];
 		pipeVec.back().second = n_arr[pcount];
 		pipe(pipeVec.back().first);
+		cout<<"before fork()"<<endl;
 
 		pid = fork();
 		if(pid == 0){
@@ -175,30 +192,43 @@ void process_command(char* command,int sockfd){
 				perror("parent: child process terminated with an error\n");
 			}
 			printf("parent done waiting\n");
-			remove_zero_vec();
+
+			cout<<"START"<<endl;
+			cout<<"vector size: "<<pipeVec.size()<<endl;
+			if(pipeVec.size()>0){
+				cout<<"vector first[0]: "<<pipeVec.back().first[0]<<endl;
+				cout<<"vector second n: "<<pipeVec.back().second<<endl;
+			}
+			
+			if(pipeVec.back().second == -2){
+				char buffer[BUFFER_SIZE];
+				memset(buffer,0,BUFFER_SIZE);
+				while(read(pipeVec.back().first[0],buffer, sizeof(buffer)) != 0){
+					write(sockfd,buffer,sizeof(buffer));
+					memset(buffer,0,BUFFER_SIZE);
+				}
+				pipeVec.erase(pipeVec.end());
+				printf("send back done\n");
+			}
+
+			remove_zero_vec();					//remove vec element whose counter = 0
+			cout<<"remove done"<<endl;
+			decrement_vec();					//-- each current element in pipe
+			cout<<"devrement done"<<endl;
 
 			pcount++; 							//instruction counter
 			printf("parent process exit\n");
 		}
 
+		cout<<"DONE"<<endl;
 		cout<<"vector size: "<<pipeVec.size()<<endl;
-		cout<<"vector second n: "<<pipeVec.back().second<<endl;
+		if(pipeVec.size()>0){
+			cout<<"vector first[0]: "<<pipeVec.back().first[0]<<endl;
+			cout<<"vector second n: "<<pipeVec.back().second<<endl;
+		}
+
+	//pipeVec.erase(pipeVec.end());
 	}
-
-	cout<<"DONE processing"<<endl;
-	cout<<"vector size: "<<pipeVec.size()<<endl;
-	cout<<"vector first[0]: "<<pipeVec.back().first[0]<<endl;
-	cout<<"vector second n: "<<pipeVec.back().second<<endl;
-
-	char buffer[BUFFER_SIZE];
-	memset(buffer,0,BUFFER_SIZE);
-	while(read(pipeVec.back().first[0],buffer, sizeof(buffer)) != 0){
-		write(sockfd,buffer,sizeof(buffer));
-	}
-	printf("send back done\n");
-	memset(buffer,0,BUFFER_SIZE);
-	pipeVec.erase(pipeVec.end());
-
 }
 
 void parse_line(char** arr, char* command){
@@ -215,40 +245,65 @@ void parse_line(char** arr, char* command){
 }
 
 void remove_zero_vec(){
-	for(int i=0; i<pipeVec.size(); i++){
+	cout<<"start removing"<<endl;	
+	for(vector<pair<int*, int> >::iterator it=pipeVec.begin(); it != pipeVec.end(); ++it){
+		if((*it).second == 0){	
+			cerr<<"pipesize"<<pipeVec.size()<<endl;
+		 	cerr<<"remove it.first[0]: "<<(*it).first[0]<<endl;
+		 	cerr<<"remove it.second: "<<(*it).second<<endl;
+			pipeVec.erase(it);
+			cout<<"finish erasing"<<endl;	
+		}
+		if(pipeVec.size()==0)
+			break;
+	}
+	cout<<"finish removing"<<endl;	
+	/*
+ 	for(int i=0; i<pipeVec.size(); i++){
 		if(pipeVec[i].second == 0){
+			cout<<"remove(): "<<i<<endl;
 			pipeVec.erase(pipeVec.begin()+i);
 		}
-	}	
+	}
+	*/
+    
 }
 
-void check_dup_exec_vec(char* token, char** arg){
+int check_dup_exec_vec(char* token, char** arg){
 	int t_pipe[2];
 	pipe(t_pipe);
+	cerr<<"in check_dup_exec"<<endl ;
+	cerr<<"vect size"<<pipeVec.size()<<endl;	
 
 	for(int i=0; i<pipeVec.size(); i++){
+		cerr<<"pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
+		cerr<<"pipeVec second:"<<pipeVec[i].second<<endl;
 		if(pipeVec[i].second == 0){
 			char buff[BUFFER_SIZE]={""};
 			memset(buff,0,BUFFER_SIZE);
 			read(pipeVec[i].first[0],buff,BUFFER_SIZE);
 			write(t_pipe[1],buff,strlen(buff));
-			cerr<<"buff: \n"<<buff;
-			memset(buff,0,BUFFER_SIZE);
+			
+			cerr<<"if pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
+			cerr<<"if buff: \n"<<buff;
+//			pipeVec.erase(pipeVec.begin()+i);			
 		}
 	}	
 	
 	//read(t_pipe[0],buff,BUFFER_SIZE);
 	dup2(t_pipe[0],0);
 	close(t_pipe[1]);
-	exec_comm(token, arg); 
+	cerr<<"returning"<<endl ;
+
+return	exec_comm(token, arg); 
 }
 
 void decrement_vec(){
 	for(int i=0; i<pipeVec.size(); i++){
-		--pipeVec[i].second == 0;
+		--pipeVec[i].second;
 	}	
 }
-int num_of_pipe(char* line){
+int num_of_pipe(char* line){  			//same as num of instruction
 	int i,n;
 	n=0;
 	for(i=0; i<strlen(line); i++){
@@ -260,11 +315,13 @@ return n+1;
 
 void takeout_pipe_n(char* command, int* arr){
 	char* it=command;
-	int i,j;
+	int i,j,n;
 	j=0;
-	for(i=0; i<strlen(command); i++){
+//	cerr<<"take out pipe: command n-2"<<*(command+strlen(command)-3)<<endl;
+	n = strlen(command);
+	for(i=0; i<n; i++){
 		if(*(it+i) == '|'){
-			if( *(it+i+1) == ' ')
+			if( (*(it+i+1)==' ') || (*(it+i+1)=='\r') || (*(it+i+1)=='\n') )
 				arr[j++] = 1;
 			else{
 				arr[j++] = atoi(it+i+1);
@@ -272,23 +329,27 @@ void takeout_pipe_n(char* command, int* arr){
 			}
 		}
 	}
+
+	if((*(it+n-3)!='|')  && (*(it+n-4)!='|')){
+		arr[j] = -2;			
+	}
 }
 
-void exec_comm(char* token, char** arg){
-	//cerr<<"exec token: ##"<<token<<"##"<<endl;
-	//cerr<<"exec arg[0]: ##"<<arg[0]<<"##"<<endl;
-	//cerr<<"exec arg[1]: ##"<<arg[1]<<"##"<<endl;
-/*	if(strcmp(token,"ls")==0){
-		execlp(token,token,0,0);
+int validate_command(char* token){
+	char* valid_command[7]={"ls","cat","printenv","setenv","number","removetag","removetag0"};
+	for(int it=0;it<7;it++){			
+		if(strcmp(token,valid_command[it])==0){
+			return 1;
+		}
+	}
+	return 0;
+}
 
-	}else if(strcmp(token,"cat")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		execlp(args[0],args[0],args[1],NULL);
+int exec_comm(char* token, char** arg){
+	if(validate_command(arg[0]) == 0){
+		return 0;
+	}	
 
-	}else 
-*/
 	if(strcmp(token,"printenv")==0){
 		char* args[2];
 		args[0] = token;
@@ -298,7 +359,6 @@ void exec_comm(char* token, char** arg){
 		puts(getenv(args[1]));
 
 	}else if(strcmp(token,"setenv")==0){
-		//printf("here is setenv\n");
 		char* args[3];
 		args[0] = token;
 		//args[1] = strtok(NULL," \r\n");
@@ -307,29 +367,12 @@ void exec_comm(char* token, char** arg){
 		setenv(args[1],args[2],1);
 		//execlp(args[0],args[0],args[1],args[2],NULL);
 
-	}else{
+	}else if(strcmp(token,"removetag")==0){
+       execl("./removetag",arg[0],arg[1],NULL);
+    }
+    else{
 		execvp(arg[0],arg);
 	}
 
-/*	else if(strcmp(token,"number")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		//execlp(args[0],args[0],args[1],NULL);
-		execl("./number",args[0],args[1],NULL);
-	}else if(strcmp(token,"noop")==0){
-		execlp(token,token,NULL);
-	}else if(strcmp(token,"removetag")==0){
-		char* args[2];
-		args[0] = token;
-		args[1] = strtok(NULL," \r\n");
-		//execlp(args[0],args[0],args[1],NULL);
-		execl("./removetag",args[0],args[1],NULL);
-	}else if(strcmp(token,"removetag0")==0){
-		execlp(token,token,NULL);
-	}
-	else{
-		printf("Unknown Command: %s\n",token);
-	}
-*/
 }	
+
