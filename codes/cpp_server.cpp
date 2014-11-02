@@ -138,8 +138,6 @@ void process_command(char* command,int sockfd){
 	for(int i=0; i<n_pipe;i++){
 		cout<<"n_arr[i]: "<<n_arr[i]<<endl;
 	}
-	//FIXME
-//	n_arr[n_pipe-1] = 1; 				//last pipe is always 1	
 
 	for(int i=0; i<n_pipe; i++){
 		token = strtok(inst_arr[i]," \n");
@@ -163,7 +161,14 @@ void process_command(char* command,int sockfd){
 			cout<<unknowncomm<<endl;
 			return;
 		}
-
+		if(strcmp(arg[0],"printenv")==0){
+			printf("%s \n",getenv(arg[1]));
+		}
+		else if(strcmp(token,"setenv")==0){
+			if(setenv(arg[1],arg[2],1) != 0){
+				cerr<<"setenv un-successfully setted"<<endl;
+			}
+		}
 		
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
 		pipeVec.back().first = new int[2];
@@ -351,26 +356,22 @@ int exec_comm(char* token, char** arg){
 	}	
 
 	if(strcmp(token,"printenv")==0){
-		char* args[2];
-		args[0] = token;
-		//args[1] = strtok(NULL," \r\n");
-		//	execlp(args[0],args[0],args[1],NULL);
-		//	printf("%s",getenv(args[1]));
-		puts(getenv(args[1]));
+	   printf("%s \n",getenv(arg[1]));
 
 	}else if(strcmp(token,"setenv")==0){
-		char* args[3];
-		args[0] = token;
-		//args[1] = strtok(NULL," \r\n");
-		//args[2] = strtok(NULL," \r\n");
-		//printf("arg012 %s %s %s\n",args[0],args[1],args[2]);
-		setenv(args[1],args[2],1);
+		int ret_val;
+		if(unsetenv(arg[1]) == 0){
+			cerr<<"setenv successfully setted"<<endl;
+		}
+		if(setenv(arg[1],arg[2],1)==0){
+			cerr<<"setenv successfully setted"<<endl;
+		}
 		//execlp(args[0],args[0],args[1],args[2],NULL);
 
 	}else if(strcmp(token,"removetag")==0){
-       execl("./removetag",arg[0],arg[1],NULL);
-    }
-    else{
+       		execl("./removetag",arg[0],arg[1],NULL);
+    	}
+    	else{
 		execvp(arg[0],arg);
 	}
 
