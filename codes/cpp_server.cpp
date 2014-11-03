@@ -278,6 +278,8 @@ void process_command(char* command,int sockfd){
 	
 	//pipeVec.erase(pipeVec.end());
 	}
+
+	pipeVec.clear();
 }
 
 void parse_line(char** arr, char* command){
