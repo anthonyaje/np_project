@@ -19,7 +19,7 @@ using namespace std;
 //GLOBAL
 vector<pair<int*,int> > pipeVec;
 bool toFile=false;
-
+int fd;
 void err_dump(char* str){
 	perror(str);
 }
@@ -121,7 +121,7 @@ int print_ip(struct sockaddr_in* cli_addr){
 }
 
 void process_command(char* command,int sockfd){
-	int status,n_pipe,pcount,fd;
+	int status,n_pipe,pcount;
 	pid_t pid;
 	char *token;
 	int* n_arr;
@@ -419,7 +419,10 @@ void stdout_redirection(char** arg, int n){
 }
 */
 int exec_comm(char* token, char** arg){
-
+	if(toFile == true){
+	   dup(fd,1);
+	}
+	
 	if(validate_command(arg[0]) == 0){
 		return 0;
 	}	
