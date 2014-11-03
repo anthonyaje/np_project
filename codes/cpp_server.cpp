@@ -213,7 +213,7 @@ void process_command(char* command,int sockfd){
 			}else{
 			    cerr<<"redirection to pipe"<<endl;
 			    dup2(pipeVec.back().first[1],1);		//direct the stdout to pipe
-			    //dup2(pipeVec.back().first[1],2);		//direct the stderr 
+			    dup2(pipeVec.back().first[1],2);		//direct the stderr 
 			    close(pipeVec.back().first[1]);
 			    check_dup_exec_vec(token,arg);
 			}
@@ -372,26 +372,26 @@ void decrement_vec(){
 int check_dup_exec_vec(char* token, char** arg){
 	int t_pipe[2];
 	pipe(t_pipe);
-	cerr<<"in check_dup_exec"<<endl ;
-	cerr<<"vect size"<<pipeVec.size()<<endl;	
+//	cerr<<"in check_dup_exec"<<endl ;
+//	cerr<<"vect size"<<pipeVec.size()<<endl;	
 
 	for(int i=0; i<pipeVec.size(); i++){
-		cerr<<"pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
-		cerr<<"pipeVec second:"<<pipeVec[i].second<<endl;
+//		cerr<<"pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
+//		cerr<<"pipeVec second:"<<pipeVec[i].second<<endl;
 		if(pipeVec[i].second == 0){
 			char buff[BUFFER_SIZE]={""};
 			memset(buff,0,BUFFER_SIZE);
 			read(pipeVec[i].first[0],buff,BUFFER_SIZE);
 			write(t_pipe[1],buff,strlen(buff));
 			
-			cerr<<"if pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
-			cerr<<"if buff: \n"<<buff;
+//			cerr<<"if pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
+//			cerr<<"if buff: \n"<<buff;
 		}
 	}	
 	
 	dup2(t_pipe[0],0);
 	close(t_pipe[1]);
-	cerr<<"returning"<<endl ;
+//	cerr<<"returning"<<endl ;
 
 return	exec_comm(token, arg); 
 }
@@ -458,7 +458,7 @@ void stdout_redirection(char** arg, int n){
 }
 */
 int exec_comm(char* token, char** arg){
-	cerr<<"in exec command"<<endl;	
+//	cerr<<"in exec command"<<endl;	
 	if(validate_command(arg[0]) == 0){
 		return 0;
 	}	
@@ -468,10 +468,10 @@ int exec_comm(char* token, char** arg){
 	}else if(strcmp(token,"setenv")==0){
 		int ret_val;
 		if(unsetenv(arg[1]) == 0){
-			cerr<<"setenv successfully setted"<<endl;
+//			cerr<<"setenv successfully setted"<<endl;
 		}
 		if(setenv(arg[1],arg[2],1)==0){
-			cerr<<"setenv successfully setted"<<endl;
+//			cerr<<"setenv successfully setted"<<endl;
 		}
 	}
     	else{	
