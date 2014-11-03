@@ -18,8 +18,6 @@ using namespace std;
 
 //GLOBAL
 vector<pair<int*,int> > pipeVec;
-bool toFile=false;
-
 void err_dump(char* str){
 	perror(str);
 }
@@ -121,11 +119,13 @@ int print_ip(struct sockaddr_in* cli_addr){
 }
 
 void process_command(char* command,int sockfd){
-	int status,n_pipe,pcount,fd;
+	int status,n_pipe,pcount;
 	pid_t pid;
 	char *token;
 	int* n_arr;
 	char** inst_arr;
+	bool toFile=false;
+	int fd;
 
 	pcount=0; 							//count the order of command
 	n_pipe = num_of_pipe(command);
@@ -151,7 +151,6 @@ void process_command(char* command,int sockfd){
 		char* temp;
 		
 		cout<<"NEW COMMAND"<<endl;
-		toFile=false;
 		arg[argc++] = token;
 		while((temp = strtok(NULL," \n")) != NULL){
 			puts(temp);
@@ -195,14 +194,16 @@ void process_command(char* command,int sockfd){
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
 		pipeVec.back().first = new int[2];
 		pipeVec.back().second = n_arr[pcount];
+		cout<<pipeVec.back().first[0]<<endl;
 		pipe(pipeVec.back().first);
+		cout<<pipeVec.back().first[0]<<endl;
 		cout<<"before fork()"<<endl;
 
 		pid = fork();
 		if(pid == 0){
 			close(pipeVec.back().first[0]);
 			if(toFile == true){
-			    cerr<<"writing to file"<<endl;
+			    cerr<<"redirection to file"<<endl;
 			    printf("filename: [%s]\n",rfilename);
 			    dup2(fd,1);					//direct the stdout to file
 			    //dup2(fd,2);					//direct the stderr to file
@@ -211,6 +212,7 @@ void process_command(char* command,int sockfd){
 			    check_dup_exec_vec(token,arg);
 		    	    //exec_comm(token,arg);
 			}else{
+			    cerr<<"redirection to pipe"<<endl;
 			    dup2(pipeVec.back().first[1],1);		//direct the stdout to pipe
 			    //dup2(pipeVec.back().first[1],2);		//direct the stderr 
 			    close(pipeVec.back().first[1]);
@@ -419,7 +421,7 @@ void stdout_redirection(char** arg, int n){
 }
 */
 int exec_comm(char* token, char** arg){
-
+	cerr<<"in exec command"<<endl;	
 	if(validate_command(arg[0]) == 0){
 		return 0;
 	}	
