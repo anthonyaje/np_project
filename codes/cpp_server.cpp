@@ -94,16 +94,18 @@ int main (int argc, char* argv[]){
 					cout<<endl;
 				}
 				else{
-					cout<<"### n: "<<n<<endl;
-					cout<<"### buffer: ["<<buffer<<"]"<<endl;
-					if(strncmp(buffer,"exit",4)==0)
+					if(strncmp(buffer,"exit",4)==0){
+						cerr<<"break!!"<<endl;
 						break;
+					}
+					if(strncmp(buffer,"\r\n",2)==0)
+						cout<<endl;
 					printf("### parse begin ####\n");
 					//process the command
 					setenv("PATH","bin:.",1);
 					process_command(buffer, newsocketfd);
 
-					printf("### parse done ####\n");
+					printf("### parse done ####\n\n\n");
 				}
 
 				bzero(buffer, BUFFER_SIZE);
@@ -183,17 +185,24 @@ void process_command(char* command,int sockfd){
 			char unknowncomm [BUFFER_SIZE] = "Unknown command: [";
 			strcat(unknowncomm,arg[0]);
 			strcat(unknowncomm, "].\n");
+			write(sockfd,"eatme\r\n",7);
 			write(sockfd,unknowncomm,sizeof(unknowncomm));
 			cout<<unknowncomm<<endl;
-			return;
+			break;
 		}
 		if(strcmp(arg[0],"printenv")==0){
-			printf("%s \n",getenv(arg[1]));
+			char str[1000]="PATH=";
+			strcat(str,getenv(arg[1]));
+			strcat(str,"\n");
+			write(sockfd,"eatme\r\n",7);
+			write(sockfd,str,sizeof(str));
+			break;
 		}
 		else if(strcmp(token,"setenv")==0){
 			if(setenv(arg[1],arg[2],1) != 0){
 				cerr<<"setenv un-successfully setted"<<endl;
 			}
+			break;
 		}
 		
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
@@ -208,7 +217,6 @@ void process_command(char* command,int sockfd){
 			close(pipeVec.back().first[0]);
 			if(toFile == true){
 			    cerr<<"redirection to file"<<endl;
-			    printf("filename: [%s]\n",rfilename);
 			    dup2(fd,1);					//direct the stdout to file
 			    close(pipeVec.back().first[1]);
 			    check_dup_exec_vec(token,arg);
@@ -246,30 +254,41 @@ void process_command(char* command,int sockfd){
 				char buffer[BUFFER_SIZE];
 				memset(buffer,0,BUFFER_SIZE);
 				while(read(pipeVec.back().first[0],buffer, sizeof(buffer)) != 0){
-					printf("SENDING: %s\n",buffer);
-					write(sockfd,buffer,sizeof(buffer));
-					memset(buffer,0,BUFFER_SIZE);
+					printf("SENDING:\n %s\n",buffer);
+					write(sockfd,"eatme\r\n",7);
+					write(sockfd,buffer,BUFFER_SIZE);
 				}
+				close(pipeVec.back().first[0]);
 				pipeVec.pop_back();
 				printf("send back done\n");
 			}
+				
+			cerr<<"vector size: "<<pipeVec.size()<<endl;
 			if(pipeVec.size()>0){
 				cerr<<"BEFORE REMOVE2"<<endl;
-				cout<<"vector size: "<<pipeVec.size()<<endl;
+				cerr<<"vector size: "<<pipeVec.size()<<endl;
 				cerr<<"vector back first[0]: "<<pipeVec.back().first[0]<<endl;
 				cerr<<"vector back second n: "<<pipeVec.back().second<<endl;
 				//cerr<<"vector end first[0]: "<<(*pipeVec.end()).first[0]<<endl;
 				//cerr<<"vector end second n: "<<(*pipeVec.end()).second<<endl;
 			}
-			
-
+	
 			remove_zero_vec();					//remove vec element whose counter = 0
-			cout<<"remove done"<<endl;
+			cerr<<"remove done"<<endl;
 			decrement_vec();					//-- each current element in pipe
-			cout<<"devrement done"<<endl;
+			cerr<<"devrement done"<<endl;
 
 			pcount++; 							//instruction counter
-			printf("parent process exit\n\n");
+			printf("parent process exit\n\n")
+;
+			cerr<<"vector size: "<<pipeVec.size()<<endl;
+			if(pipeVec.size()>0){
+				cerr<<"AFTER REMOVE2"<<endl;
+				cerr<<"vector back first[0]: "<<pipeVec.back().first[0]<<endl;
+				cerr<<"vector back second n: "<<pipeVec.back().second<<endl;
+				//cerr<<"vector end first[0]: "<<(*pipeVec.end()).first[0]<<endl;
+				//cerr<<"vector end second n: "<<(*pipeVec.end()).second<<endl;
+			}
 		}
 
 		cout<<"DONE"<<endl;
@@ -300,7 +319,7 @@ void parse_line(char** arr, char* command){
 }
 
 void remove_zero_vec(){
-	cout<<"start removing"<<endl;	
+	cerr<<"start removing"<<endl;	
 	cout<<"vector size: "<<pipeVec.size()<<endl;
 	for(int i=0; i<pipeVec.size();i++){
 		cout<<"pipe"<<i<<" :"<< pipeVec[i].first[0]<<", "<<pipeVec[i].second<<endl;
@@ -310,7 +329,7 @@ void remove_zero_vec(){
 		if((*(pipeVec.begin()+i)).second == 0){	
 			cout<<"strart erasing"<<endl;	
 			close((*(pipeVec.begin()+i)).first[0]);
-			close((*(pipeVec.begin()+i)).first[1]);
+	//		close((*(pipeVec.begin()+i)).first[1]);
 			pipeVec.erase(pipeVec.begin()+i);
 			cout<<"finish erasing"<<endl;	
 			for(int i=0; i<pipeVec.size();i++){
@@ -342,6 +361,7 @@ int check_dup_exec_vec(char* token, char** arg){
 	cerr<<"vect size"<<pipeVec.size()<<endl;	
 
 	for(int i=0; i<pipeVec.size(); i++){
+		cerr<<"i :"<<i<<endl;	
 		cerr<<"pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
 		cerr<<"pipeVec second:"<<pipeVec[i].second<<endl;
 		if(pipeVec[i].second == 0){
@@ -349,7 +369,7 @@ int check_dup_exec_vec(char* token, char** arg){
 			memset(buff,0,BUFFER_SIZE);
 			read(pipeVec[i].first[0],buff,BUFFER_SIZE);
 			write(t_pipe[1],buff,strlen(buff));
-			
+
 			cerr<<"if pipeVec first[0]:"<<pipeVec[i].first[0]<<endl;
 			cerr<<"if buff: \n"<<buff;
 		}
@@ -357,7 +377,7 @@ int check_dup_exec_vec(char* token, char** arg){
 	
 	dup2(t_pipe[0],0);
 	close(t_pipe[1]);
-	close(t_pipe[0]);
+
 	cerr<<"returning"<<endl ;
 
 return	exec_comm(token, arg); 
@@ -413,8 +433,8 @@ void takeout_pipe_n(char* command, int* arr){
 }
 
 int validate_command(char* token){
-	char* valid_command[7]={"ls","cat","printenv","setenv","number","removetag","removetag0"};
-	for(int it=0;it<7;it++){			
+	char* valid_command[8]={"noop","ls","cat","printenv","setenv","number","removetag","removetag0"};
+	for(int it=0;it<8;it++){			
 		if(strcmp(token,valid_command[it])==0){
 			return 1;
 		}
@@ -440,7 +460,7 @@ int exec_comm(char* token, char** arg){
 		}
 	}
     	else{	
-		cerr<<"exec command"<<arg[0]<<endl;	
+		cerr<<"exec command: "<<arg[0]<<endl;	
 		execvp(arg[0],arg);
 	}
 
