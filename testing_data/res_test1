@@ -1,0 +1,29 @@
+#### WELCOME NOTE from server  ####
+% printenv PATH
+/usr/local/bin:/usr/bin:/bin 
+% ls
+bin
+server
+test1.txt
+test2.txt
+test3.txt
+test.html
+% setenv PATH .
+% % printenv PATH
+. 
+% ls
+% % setenv PATH bin
+% % setenv LANG en_US
+% % printenv LANG
+en_US 
+% ls bin
+cat
+ls
+noop
+number
+removetag
+removetag0
+server
+% date
+Unknown Command: [date]
+% exit

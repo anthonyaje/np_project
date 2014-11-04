@@ -1,0 +1,29 @@
+#### WELCOME NOTE from server  ####
+% removetag test.html |5
+% % ls | number > ls.txt
+% % removetag0 test.html |1
+% % number | number |2 cat ls.txt |1
+% % UNKNOWN_COMMAND!
+Unknown Command: [UNKNOWN_COMMAND!]
+% number
+% % ls |4 ls |3
+% % ls | number | cat
+bin
+ls.txt
+outtest1.txt
+outtest2.txt
+server
+test1.txt
+test2.txt
+test3.txt
+test.html
+bin
+ls.txt
+outtest1.txt
+outtest2.txt
+server
+test1.txt
+test2.txt
+test3.txt
+test.html
+% exit

@@ -1,0 +1,104 @@
+#### WELCOME NOTE from server  ####
+% printenv PATH
+/usr/local/bin:/usr/bin:/bin 
+% setenv PATH bin
+% % printenv PATH
+bin 
+% ls
+bin
+foo
+server
+t
+test.html
+% ls bin
+cat
+ls
+noop
+number
+removetag
+removetag0
+server
+% cat test.html > test1.txt
+% % cat test1.txt
+<!test.html>
+<TITLE>Test<TITLE>
+<BODY>This is a <b>test</b> program
+for ras.
+</BODY>
+% removetag test.html
+
+Test
+This is a test program
+for ras.
+
+% removetag test.html > test2.txt
+% % cat test2.txt
+
+Test
+This is a test program
+for ras.
+
+% removetag0 test.html
+
+Test
+This is a test program
+for ras.
+
+% removetag0 test.html > test2.txt
+% % cat test2.txt
+
+Test
+This is a test program
+for ras.
+
+% removetag test.html | number
+   1 <!test.html>
+   2 <TITLE>Test<TITLE>
+   3 <BODY>This is a <b>test</b> program
+   4 for ras.
+   5 </BODY>
+% removetag test.html |1 number > test3.txt
+% % cat test3.txt
+   1 <!test.html>
+   2 <TITLE>Test<TITLE>
+   3 <BODY>This is a <b>test</b> program
+   4 for ras.
+   5 </BODY>
+% removetag test.html |3 removetag test.html | number |1 number
+   1 <!test.html>
+   2 <TITLE>Test<TITLE>
+   3 <BODY>This is a <b>test</b> program
+   4 for ras.
+   5 </BODY>
+% ls |2 ls | cat
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+% ls |2 removetag test.html
+
+Test
+This is a test program
+for ras.
+
+% cat
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
