@@ -54,10 +54,15 @@ int main (int argc, char* argv[]){
 	if(bind(socketfd,(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)
 		err_dump((char*)"server: can't bind local address");
 
+    //cout<<"start listening"<<endl;
 	listen(socketfd,5);
+    //cout<<"finish listening"<<endl;
+
 	for(;;){
+        //cout<<"running accept"<<endl;
 		cli_addr_size = sizeof(cli_addr);
 		newsocketfd = accept(socketfd,(struct sockaddr*) &cli_addr, (socklen_t*)&cli_addr_size);
+        //cout<<"finish accept"<<endl;
 		if(newsocketfd<0){
 			perror("Error on accept");
 			exit(1);
@@ -105,7 +110,6 @@ int main (int argc, char* argv[]){
 					//process the command
 					//setenv("PATH","bin:.",1);
 					process_command(buffer, newsocketfd);
-
 					printf("### parse done ####\n\n\n");
 				}
 
@@ -166,7 +170,7 @@ void process_command(char* command,int sockfd){
 			    cerr<<"to file redirection found"<<endl;
 			    toFile = true; 
 			    rfilename = strtok(NULL," \n");
-			    fd = open(rfilename,O_RDWR|O_CREAT,777);
+			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
 			    break;
  			} 
 			else{

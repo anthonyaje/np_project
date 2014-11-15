@@ -165,7 +165,7 @@ void process_command(char* command,int sockfd){
 			    cerr<<"to file redirection found"<<endl;
 			    toFile = true; 
 			    rfilename = strtok(NULL," \n");
-			    fd = open(rfilename,O_RDWR|O_CREAT,777);
+			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
 			    break;
  			} 
 			else{
@@ -218,6 +218,10 @@ void process_command(char* command,int sockfd){
 		if(pid == 0){
 			close(pipeVec.back().first[0]);
 			if(toFile == true){
+			    if(validate_command(arg[0]) == 0){
+                                _exit(EXIT_FAILURE);
+                                //return 0;
+                            }
 			    dup2(fd,1);					//direct the stdout to file
 			    dup2(pipeVec.back().first[1],2);		//direct the stderr 
 			    close(pipeVec.back().first[1]);

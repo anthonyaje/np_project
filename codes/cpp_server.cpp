@@ -8,11 +8,13 @@
 #include <netinet/in.h>
 //#include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <vector>
 #include <fcntl.h>
 
 #define PORTNUM 8867
 #define BUFFER_SIZE 10100 
+#define MAX_CLIENT 5 
 
 using namespace std;
 
@@ -35,84 +37,97 @@ int validate_command(char* token);
 void check_redirection(char** arg);
 
 int main (int argc, char* argv[]){
-	int socketfd, newsocketfd, cli_addr_size, childpid;
+	int listenfd, connfd, cli_addr_size, childpid;
 	struct sockaddr_in cli_addr, serv_addr;
 	int n;
 	char buffer[BUFFER_SIZE];	
 	char* pname=argv[0];
-	
+	int port_num = PORTNUM;	
+	fd_set read_set, ready_set;	
+	int nfds;
+
+	if(argc == 2){
+	    port_num = atoi(argv[1]);	
+	}
+
 	//open tcp socket
-	if((socketfd=socket(AF_INET,SOCK_STREAM,0)) < 0)			
+	if((listenfd = socket(AF_INET,SOCK_STREAM,0)) < 0)			
 		err_dump((char*)"server: can't open stream socket");
 	//bind local address
 	bzero((char*) &serv_addr, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	//serv_addr.sin_addr.s_addr = inet_addr("127.1.1.1");
-	serv_addr.sin_port = htons(PORTNUM);
+	serv_addr.sin_port = htons(port_num);
 
-	if(bind(socketfd,(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)
+	if(bind(listenfd,(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)
 		err_dump((char*)"server: can't bind local address");
 
-	listen(socketfd,5);
-	for(;;){
-		cli_addr_size = sizeof(cli_addr);
-		newsocketfd = accept(socketfd,(struct sockaddr*) &cli_addr, (socklen_t*)&cli_addr_size);
-		if(newsocketfd<0){
-			perror("Error on accept");
-			exit(1);
-		}
-		if((childpid=fork()) < 0) err_dump((char*) "server: accept error");   
-		else if(childpid==0){ //child process
-			close(socketfd);
-			char welcomenote [200] = "****************************************\n** Welcome to the information server. **\n****************************************\n";
+    cout<<"listening"<<endl;
+	listen(listenfd,MAX_CLIENT);
+    cout<<"listenfd "<<listenfd<<endl;
+	FD_ZERO(&read_set);
+	FD_ZERO(&ready_set);
+	FD_SET(listenfd, &read_set);	
+	nfds = listenfd+1;	
+	//nfds = 256;	
 
-                        printf("client connection accepted!\n");
-                        n = write(newsocketfd,welcomenote,sizeof(welcomenote));
-			if(n<0){
-				perror("Error reading from socket");
+	for(;;){
+		ready_set = read_set;
+        if(FD_ISSET(4,&ready_set)) cout<<"read_set 4 is ON"<<endl;
+        if(FD_ISSET(4,&read_set)) cout<<"read_set 4 is ON"<<endl;
+        
+        //SELECT HERE
+        cout<<"running select"<<endl;
+		int nready = select(nfds,&ready_set,(fd_set*)0,(fd_set*)0,(struct timeval*)0);
+        cout<<"nready: "<<nready<<endl;
+		if(FD_ISSET(listenfd,&ready_set)){
+			cli_addr_size = sizeof(cli_addr);
+			if( (connfd = accept(listenfd,(struct sockaddr*) &cli_addr, (socklen_t*)&cli_addr_size)) <0){
+				perror("Error on accept");
 				exit(1);
 			}
+			char welcomenote [200] = "****************************************\n** Welcome to the information server. **\n****************************************\n";
 
-			bzero(buffer, BUFFER_SIZE);
-			setenv("PATH","bin:.",1);
-			while(1){
-				//write a response to the client
-				char beginchar[5]="% ";
-				n = write(newsocketfd,beginchar,sizeof(beginchar));
-				if(n<0){
-					perror("Error writing to socket");
-					exit(1);
-				}
-
-				n = read(newsocketfd, buffer, BUFFER_SIZE);
-				if(n<0){
-					perror("Error reading from socket");
-					exit(1);
-				}
-
-				if(n==2){
-					cout<<endl;
-				}
-				else{
-					if(strncmp(buffer,"exit",4)==0){
-						cerr<<"break!!"<<endl;
-						break;
-					}
-					if(strncmp(buffer,"\r\n",2)==0)
-						cout<<endl;
-					printf("### parse begin ####\n");
-
-					process_command(buffer, newsocketfd);
-
-					printf("### parse done ####\n\n\n");
-				}
-
-				bzero(buffer, BUFFER_SIZE);
-			}
-			exit(0);
+			printf("client connection accepted!\n");
+			n = write(connfd,welcomenote,sizeof(welcomenote));
+			if(n<0){ perror("Error writing to socket"); exit(1); }
+            cout<<"connfd"<<connfd<<endl;
+			FD_SET(connfd,&read_set);
 		}
-		close(newsocketfd); //parent process
+		
+		//TODO
+        cout<<"nfds "<<nfds<<endl;
+		for(int it_fd=0; it_fd<nfds; it_fd++){
+            cout<<"it_fd"<<it_fd<<endl;
+            if(it_fd!=listenfd && FD_ISSET(it_fd,&ready_set)){
+                bzero(buffer, BUFFER_SIZE);
+                setenv("PATH","bin:.",1);
+                //while(1){
+                    char beginchar[5]="% ";
+                    n = write(it_fd,beginchar,sizeof(beginchar));
+                    if(n<0){ perror("Error writing to socket"); exit(1);}
+
+                    n = read(it_fd, buffer, BUFFER_SIZE);
+                    if(n<0){ perror("Error reading from socket"); exit(1);}
+
+                    if(strncmp(buffer,"exit",4)==0){
+                        close(it_fd);
+                        FD_CLR(it_fd,&read_set);
+                        cerr<<"break!!"<<endl;
+                        break;
+                    }
+                    //if(strncmp(buffer,"\r\n",2)==0)
+                    //    cout<<endl;
+                    printf("### parse begin ####\n");
+
+                    process_command(buffer, connfd);
+
+                    printf("### parse done ####\n\n\n");
+
+                    bzero(buffer, BUFFER_SIZE);
+                //}
+            }
+		}
 	}
 
 return 0;
@@ -165,7 +180,7 @@ void process_command(char* command,int sockfd){
 			    cerr<<"to file redirection found"<<endl;
 			    toFile = true; 
 			    rfilename = strtok(NULL," \n");
-			    fd = open(rfilename,O_RDWR|O_CREAT,777);
+			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
 			    break;
  			} 
 			else{
