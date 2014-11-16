@@ -26,8 +26,10 @@ class user{
     string ip;
     string port;
     int fd;
-    vector<string> env_name;
-    vector<string> env_addr;
+    int p_ready;
+    int pipefd[2];
+    //vector<string> env_name;
+    //vector<string> env_addr;
     };
 vector<pair<int*,int> > pipeVec;
 vector<user> user_list;
@@ -118,6 +120,8 @@ int main (int argc, char* argv[]){
             u.ip = (string)(inet_ntoa(cli_addr.sin_addr));
             u.port = to_string(ntohs(cli_addr.sin_port));
             u.fd = connfd;
+            u.p_ready = -1;
+            //pipe(u.pipefd);
 
             user_list.push_back(u);
             
@@ -141,7 +145,6 @@ int main (int argc, char* argv[]){
         cout<<"nfds "<<nfds<<endl;
         int nfds_cpy = nfds;
 		for(int it_fd=0; it_fd<nfds_cpy; it_fd++){
-            //cout<<"it_fd"<<it_fd<<endl;
             if(it_fd!=listenfd && FD_ISSET(it_fd,&ready_set)){
                 bzero(buffer, BUFFER_SIZE);
                 setenv("PATH","bin:.",1);
@@ -181,7 +184,6 @@ return 0;
 }
 
 int process_chat_command(int argc, char** arg,int fd){
-    cout<<"argc: "<<argc<<endl;
     if(strcmp(arg[0],"who")==0){
         string str = "<ID>\t<nickname>\t<IP/port>\t<indicate me>\n";
         if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
@@ -324,7 +326,7 @@ void process_command(char* command,int sockfd){
 	char *token;
 	int* n_arr;
 	char** inst_arr;
-	int fd;
+	int fd,cli_fd0,cli_fd1;
 
 	pcount=0; 							//count the order of command
     n_inst=0;
@@ -350,6 +352,7 @@ void process_command(char* command,int sockfd){
 		token = strtok(inst_arr[i]," \n");
 		int argc=0;
 		bool toFile=false;
+		bool toClientPipe=false;
 		char* rfilename=NULL;
 		char* temp;
 	   	
@@ -365,9 +368,51 @@ void process_command(char* command,int sockfd){
 			    break;
  			} 
 			else{
-			    arg[argc] = temp;
-			    printf("arg[%d]: %s\n",argc,arg[argc]); 
-			    argc++;
+                if(*temp=='>'){
+			        cerr<<"to other client redirection found"<<endl;
+                    int dest_id = atoi((temp+1));
+                    int u_index = user_fd_to_index(sockfd);  
+                    int source_id = user_list[u_index].id;
+                    int dest_fd = user_id_to_fd(dest_id);
+                    if(dest_fd == -1){
+                        string str = "*** Error: user #"+to_string(dest_id)+" does not exist yet. ***\n";
+                        write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
+
+                        break;
+                    }
+                    else{
+                        if(user_list[u_index].p_ready == -1){ //uninit
+                            toClientPipe=true;
+                            pipe(user_list[u_index].pipefd);
+                            cli_fd0 = user_list[u_index].pipefd[0];
+                            cli_fd1 = user_list[u_index].pipefd[1];
+                            user_list[u_index].p_ready = 1; 
+                        }
+                        else if(user_list[u_index].p_ready == 0){ //ready
+                            toClientPipe=true;
+                            cli_fd0 = user_list[u_index].pipefd[0];
+                            cli_fd1 = user_list[u_index].pipefd[1];
+                            user_list[u_index].p_ready = 1; 
+                        }
+                        else{   // 1 if it has been used
+                            toClientPipe=false;   
+                            string str = " *** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n";
+                            write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
+
+                            break;
+                        }
+                    }
+                    break;
+                }
+                else if(*temp=='<'){
+                    //TODO get from pipe
+
+                }
+                else{
+                    arg[argc] = temp;
+                    printf("arg[%d]: %s\n",argc,arg[argc]); 
+                    argc++;
+                }
 			}
 		}
 		printf("token: [%s] arg0: [%s] arg1[%s]\n",token,arg[0],arg[1]);
@@ -404,6 +449,7 @@ void process_command(char* command,int sockfd){
 			}
 			break;
 		}
+        cerr<<"before process chat command"<<endl;
         if(process_chat_command(argc,arg,sockfd)==0)
             break;
 		
@@ -422,7 +468,15 @@ void process_command(char* command,int sockfd){
 			    dup2(pipeVec.back().first[1],2);		//direct the stderr 
 			    close(pipeVec.back().first[1]);
 			    check_dup_exec_vec(token,arg);
-			}else{
+			}
+            else if(toClientPipe){
+                cerr<<"dup to client"<<endl;
+                dup2(cli_fd1,1);   
+                dup2(cli_fd1,2);
+                close(cli_fd1);   
+			    check_dup_exec_vec(token,arg);
+            }
+            else{
 			    dup2(pipeVec.back().first[1],1);		//direct the stdout to pipe
 			    dup2(pipeVec.back().first[1],2);		//direct the stderr 
 			    close(pipeVec.back().first[1]);
