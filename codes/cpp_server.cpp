@@ -2,11 +2,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <sys/wait.h>
-//#include <sys/socket.h>
+#include <sys/socket.h>
 //#include <errno.h>
 #include <cstring>
 #include <netinet/in.h>
-//#include <arpa/inet.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <vector>
@@ -19,11 +19,23 @@
 using namespace std;
 
 //GLOBAL
+class user{
+    public:
+    int id;
+    string name;
+    string ip;
+    string port;
+    int fd;
+    vector<string> env_name;
+    vector<string> env_addr;
+    };
 vector<pair<int*,int> > pipeVec;
+vector<user> user_list;
+
+//PROTOTYPE
 void err_dump(char* str){
 	perror(str);
 }
-//PROTOTYPE
 int print_ip(struct sockaddr_in* cli_addr);
 void process_command(char* command, int sockfd);
 int num_of_pipe(char* line);
@@ -32,9 +44,17 @@ int exec_comm(char* token, char** arg);
 void decrement_vec();
 int check_dup_exec_vec(char* token, char** arg);
 void remove_zero_vec();
-void parse_line(char** ,char*);
+int parse_line(char** ,char*);
 int validate_command(char* token);
 void check_redirection(char** arg);
+
+int remove_user(vector<user>& user_list, int fd, int* id_list);
+int broadcast_mess(string& mess, vector<user>& list, int myfd,int notme);
+int process_chat_command(int argc, char** arg, int fd);
+int request_id(int* arr);
+int check_name_avail(string name);
+int user_fd_to_index(int fd);
+int user_id_to_fd(int id); 
 
 int main (int argc, char* argv[]){
 	int listenfd, connfd, cli_addr_size, childpid;
@@ -45,6 +65,8 @@ int main (int argc, char* argv[]){
 	int port_num = PORTNUM;	
 	fd_set read_set, ready_set;	
 	int nfds;
+    int user_count=0;
+    int id_list[31]={};
 
 	if(argc == 2){
 	    port_num = atoi(argv[1]);	
@@ -62,7 +84,6 @@ int main (int argc, char* argv[]){
 	if(bind(listenfd,(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)
 		err_dump((char*)"server: can't bind local address");
 
-    cout<<"listening"<<endl;
 	listen(listenfd,MAX_CLIENT);
     cout<<"listenfd "<<listenfd<<endl;
 	FD_ZERO(&read_set);
@@ -72,14 +93,13 @@ int main (int argc, char* argv[]){
 	//nfds = 256;	
 
 	for(;;){
+        cout<<"user_list.size(): "<<user_list.size()<<endl;
+
 		ready_set = read_set;
-        if(FD_ISSET(4,&ready_set)) cout<<"read_set 4 is ON"<<endl;
-        if(FD_ISSET(4,&read_set)) cout<<"read_set 4 is ON"<<endl;
-        
         //SELECT HERE
         cout<<"running select"<<endl;
 		int nready = select(nfds,&ready_set,(fd_set*)0,(fd_set*)0,(struct timeval*)0);
-        cout<<"nready: "<<nready<<endl;
+        if(nready<0){ perror("Error in select\n"); }
 		if(FD_ISSET(listenfd,&ready_set)){
 			cli_addr_size = sizeof(cli_addr);
 			if( (connfd = accept(listenfd,(struct sockaddr*) &cli_addr, (socklen_t*)&cli_addr_size)) <0){
@@ -91,41 +111,68 @@ int main (int argc, char* argv[]){
 			printf("client connection accepted!\n");
 			n = write(connfd,welcomenote,sizeof(welcomenote));
 			if(n<0){ perror("Error writing to socket"); exit(1); }
+            
+            user u;        
+            u.id = request_id(id_list);
+            u.name = "no name";
+            u.ip = (string)(inet_ntoa(cli_addr.sin_addr));
+            u.port = to_string(ntohs(cli_addr.sin_port));
+            u.fd = connfd;
+
+            user_list.push_back(u);
+            
+            string mydetail = "*** User '("+u.name+")' entered from "+u.ip+"/"+u.port+". ***\n";
+            //Tell other about me
+            broadcast_mess(mydetail,user_list,connfd,0);
+        
+            cout<<"print % "<<endl;
+            n = write(connfd,"% ",sizeof(char)*strlen("% "));
+            if(n<0){ perror("Error writing to socket"); exit(1);}
+
+
             cout<<"connfd"<<connfd<<endl;
+            user_count++;
 			FD_SET(connfd,&read_set);
+            //adjust the upperbound for the ready_set
+            if(connfd >= nfds)
+                nfds = connfd+1;
 		}
 		
-		//TODO
         cout<<"nfds "<<nfds<<endl;
-		for(int it_fd=0; it_fd<nfds; it_fd++){
-            cout<<"it_fd"<<it_fd<<endl;
+        int nfds_cpy = nfds;
+		for(int it_fd=0; it_fd<nfds_cpy; it_fd++){
+            //cout<<"it_fd"<<it_fd<<endl;
             if(it_fd!=listenfd && FD_ISSET(it_fd,&ready_set)){
                 bzero(buffer, BUFFER_SIZE);
                 setenv("PATH","bin:.",1);
-                //while(1){
-                    char beginchar[5]="% ";
-                    n = write(it_fd,beginchar,sizeof(beginchar));
-                    if(n<0){ perror("Error writing to socket"); exit(1);}
+                n = read(it_fd, buffer, BUFFER_SIZE);
+                if(n<0){ perror("Error reading from socket"); exit(1);}
+                if(strncmp(buffer,"exit",4)==0){
+                    //remove user from list
+                    remove_user(user_list,it_fd, id_list);
+                    cout<<"after remove user"<<endl;
+                    close(it_fd);
+                    FD_CLR(it_fd,&read_set);
+                    user_count--;
+                    //nfds--;
+                    cerr<<"exit!!"<<endl;
+                    continue; 
+                }
+                int savstdout = dup(1);
 
-                    n = read(it_fd, buffer, BUFFER_SIZE);
-                    if(n<0){ perror("Error reading from socket"); exit(1);}
+                printf("### parse begin ####\n");
+                process_command(buffer, it_fd);
+                printf("### parse done ####\n\n\n");
 
-                    if(strncmp(buffer,"exit",4)==0){
-                        close(it_fd);
-                        FD_CLR(it_fd,&read_set);
-                        cerr<<"break!!"<<endl;
-                        break;
-                    }
-                    //if(strncmp(buffer,"\r\n",2)==0)
-                    //    cout<<endl;
-                    printf("### parse begin ####\n");
+                fflush(stdout);
+                dup2(savstdout,1);
+                
+                cout<<"print % "<<endl;
+                char beginchar[5]="% ";
+                n = write(it_fd,beginchar,sizeof(beginchar));
+                if(n<0){ perror("Error writing to socket"); exit(1);}
 
-                    process_command(buffer, connfd);
-
-                    printf("### parse done ####\n\n\n");
-
-                    bzero(buffer, BUFFER_SIZE);
-                //}
+                bzero(buffer, BUFFER_SIZE);
             }
 		}
 	}
@@ -133,16 +180,146 @@ int main (int argc, char* argv[]){
 return 0;
 }
 
-int print_ip(struct sockaddr_in* cli_addr){
-	printf("%d.%d.%d.%d\n",
-			(int)(cli_addr->sin_addr.s_addr&0xFF),
-			(int)((cli_addr->sin_addr.s_addr&0xFF00)>>8),
-			(int)((cli_addr->sin_addr.s_addr&0xFF0000)>>16),
-			(int)((cli_addr->sin_addr.s_addr&0xFF000000)>>24));	
+int process_chat_command(int argc, char** arg,int fd){
+    cout<<"argc: "<<argc<<endl;
+    if(strcmp(arg[0],"who")==0){
+        string str = "<ID>\t<nickname>\t<IP/port>\t<indicate me>\n";
+        if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
+            perror("Error writing to socket"); 
+        for(int i=0; i<user_list.size(); i++){
+           str = to_string(user_list[i].id) +"\t"+ user_list[i].name+"\t"+ user_list[i].ip +"/"+ user_list[i].port+"\t";
+           if(user_list[i].fd == fd)
+               str += "<-me\n";
+           else
+               str += "\n";
+           if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
+               perror("Error writing to socket"); 
+        }
+    }
+    else if(strcmp(arg[0],"yell")==0){
+        string msg = "*** "+user_list[user_fd_to_index(fd)].name+" yelled ***:";
+        for(int i=1;i<argc;i++){
+            msg += " "+(string)arg[i];    
+        }
+        msg+="\n";
+        broadcast_mess(msg,user_list,fd,0);
+    
+    }
+    else if(strcmp(arg[0],"tell")==0){
+        int to_fd = user_id_to_fd(atoi(arg[1]));
+        string my_name = user_list[user_fd_to_index(fd)].name;
+        string msg;
+        if(to_fd == -1){
+            msg = "*** Error: user #"+(string)arg[1]+" does not exist yet. ***\n";
+            if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
+                perror("Error writing to socket"); 
+        }
+        else{
+            msg = "*** "+my_name+" told you ***: ";
+            for(int i=2;i<argc;i++){
+                msg += " "+(string)arg[i];    
+            }
+            msg += "\n";  
+            if(write(to_fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
+                perror("Error writing to socket"); 
+        }
+        
+
+    }
+    else if(strcmp(arg[0],"name")==0){
+        //check validity
+        if(check_name_avail((string) arg[1])==0){
+            string msg = "*** User '("+(string)arg[1]+")' already exists. ***\n";
+            if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
+               perror("Error writing to socket"); 
+        }
+        else{
+            //assign name
+            int i = user_fd_to_index(fd); 
+            user_list[i].name = arg[1];
+            string msg = "*** User from "+user_list[i].ip+"/"+user_list[i].port+" is named '"+user_list[i].name+"'. ***\n";
+            broadcast_mess(msg,user_list,fd,0);        
+        }
+
+    }else{
+        return 1;    
+    }
+
+return 0;    
+}
+int user_id_to_fd(int id){
+    for(int i=0;i<user_list.size();i++){
+        if(user_list[i].id == id){
+            return user_list[i].fd;
+        }    
+    }
+cerr<<"user_id_to_fd not found"<<endl;
+return -1;
+        
+}
+
+int user_fd_to_index(int fd){
+    for(int i=0;i<user_list.size();i++){
+        if(user_list[i].fd == fd){
+            return i;
+        }    
+    }
+cerr<<"user_fd_to_index"<<endl;
+return -1;
+}
+int check_name_avail(string name){
+    for(int i=0; i<user_list.size(); i++){
+        if(user_list[i].name.compare(name)==0)
+              return 0; 
+    }
+
+return 1;    
+}
+
+int request_id(int* arr){
+    for(int i=1; i<=30; i++)
+        if(arr[i]==0){
+            arr[i]=-1;
+            return i;    
+        }
+   return 0;
+}
+
+int broadcast_mess(string& mess, vector<user>& list,int myfd, int notme){
+    int n;
+    if(notme){
+        for(int i=0; i<list.size(); i++){
+            if(list[i].fd != myfd){
+                n = write(list[i].fd,(char*) mess.c_str(),sizeof(char)*strlen(mess.c_str()) );
+                if(n<0){ perror("Error writing to socket"); }
+            }
+        }
+    }
+    else{
+        for(int i=0; i<list.size(); i++){
+            cout<<"to: "<<list[i].id<<endl;
+                n = write(list[i].fd,(char*) mess.c_str(),sizeof(char)*strlen(mess.c_str()) );
+                if(n<0){ perror("Error writing to socket"); }
+        }
+    }
+
+return 0;
+}
+
+int remove_user(vector<user>& user_list, int fd, int* id_list){
+    for(int i=user_list.size()-1; i>=0; i--)
+        if(user_list[i].fd == fd){
+            id_list[user_list[i].id] = 0;
+            string mess = "*** User '("+user_list[i].name+")' left. ***\n";
+            broadcast_mess(mess,user_list,fd,0);
+            user_list.erase(user_list.begin()+i);    
+        }
+
+    return 0;
 }
 
 void process_command(char* command,int sockfd){
-	int status,n_pipe,pcount;
+	int status,n_pipe,pcount, n_inst;
 	pid_t pid;
 	char *token;
 	int* n_arr;
@@ -150,6 +327,7 @@ void process_command(char* command,int sockfd){
 	int fd;
 
 	pcount=0; 							//count the order of command
+    n_inst=0;
 	n_pipe = num_of_pipe(command);
 	n_arr = (int*) malloc((n_pipe)*sizeof(int));
 	inst_arr = 	(char**) malloc((n_pipe)*sizeof(char*));
@@ -157,21 +335,24 @@ void process_command(char* command,int sockfd){
 	cerr<<"Command LENGTH"<<strlen(command)<<endl;
 	puts(command);
 	takeout_pipe_n(command, n_arr); 	//process the pipe n number into array
-	puts(command);
-	parse_line(inst_arr, command);		//cut the line @ | to array
-	for(int i=0; i<n_pipe;i++){
-		cout<<"inst_arr[i]: "<<inst_arr[i];
+	//puts(command);
+    printf("command: [%s]\n",command);
+	n_inst = parse_line(inst_arr, command);		//cut the line @ | to array
+	//for(int i=0; i<n_pipe;i++){
+	for(int i=0;i<n_inst;i++){
+		cout<<"inst_arr[i]: "<<inst_arr[i]<<endl;
 		cout<<"n_arr[i]: "<<n_arr[i]<<endl;
 	}
 
-	for(int i=0; i<n_pipe; i++){
+	//for(int i=0; i<n_pipe; i++){
+	for(int i=0; i<n_inst; i++){
 		char* arg[100]={};
 		token = strtok(inst_arr[i]," \n");
 		int argc=0;
 		bool toFile=false;
 		char* rfilename=NULL;
 		char* temp;
-		
+	   	
 		cout<<"NEW COMMAND"<<endl;
 		arg[argc++] = token;
 		while((temp = strtok(NULL," \n")) != NULL){
@@ -185,7 +366,7 @@ void process_command(char* command,int sockfd){
  			} 
 			else{
 			    arg[argc] = temp;
-			    printf("arg[%d]: %s\n",arg[argc]); 
+			    printf("arg[%d]: %s\n",argc,arg[argc]); 
 			    argc++;
 			}
 		}
@@ -205,7 +386,9 @@ void process_command(char* command,int sockfd){
 			cout<<unknowncomm<<endl;
 			break;
 		}
+
 		if(strcmp(arg[0],"printenv")==0){
+            cout<<"inside printenv"<<endl;
 			char str[1000]="";
 			strcat(str,arg[1]);
 			strcat(str,"=");
@@ -221,6 +404,8 @@ void process_command(char* command,int sockfd){
 			}
 			break;
 		}
+        if(process_chat_command(argc,arg,sockfd)==0)
+            break;
 		
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
 		pipeVec.back().first = new int[2];
@@ -275,17 +460,18 @@ void process_command(char* command,int sockfd){
 	}
 }
 
-void parse_line(char** arr, char* command){
+int parse_line(char** arr, char* command){
 	char *token, *s;
 	int i=0;
 	s = strtok(command,"|\r\n");
 	while(s != NULL){
-		token = new char[strlen(s) + 1];
+		token = new char[strlen(s)+2];
 		strcpy(token,s);
-		token[strlen(s)]='\n';
+		token[strlen(s)+1]='\n';
 		arr[i++] = token; 
 		s = strtok(NULL,"|\r\n");
 	}
+    return i;
 }
 
 void remove_zero_vec(){
@@ -368,9 +554,9 @@ void takeout_pipe_n(char* command, int* arr){
 }
 
 int validate_command(char* token){
-	char* valid_command[8]={"noop","ls","cat","printenv","setenv","number","removetag","removetag0"};
-	for(int it=0;it<8;it++){			
-		if(strcmp(token,valid_command[it])==0){
+	string valid_command[12]={"who","yell","tell","name","noop","ls","cat","printenv","setenv","number","removetag","removetag0"};
+	for(int it=0;it<12;it++){			
+		if(strcmp(token,valid_command[it].c_str())==0){
 			return 1;
 		}
 	}
