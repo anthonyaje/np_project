@@ -26,10 +26,8 @@ class user{
     string ip;
     string port;
     int fd;
-   // int p_ready;
-   // int pipefd[2];
-    //vector<string> env_name;
-    //vector<string> env_addr;
+    vector<string> env_name;
+    vector<string> env_addr;
 };
 
 class client_pipe{
@@ -39,7 +37,8 @@ class client_pipe{
     int pipefd[2];    
 };
 
-vector<pair<int*,int> > pipeVec;
+//vector<pair<int*,int> > pipeVec;
+vector< pair<vector<pair<int*,int> >, int> >pipeVec_arr;
 vector<user> user_list;
 vector<client_pipe> cli_pipe_list; 
 //PROTOTYPE
@@ -51,9 +50,9 @@ void process_command(char* command, int sockfd);
 int num_of_pipe(char* line);
 void takeout_pipe_n(char* command, int* arr); //move the pipe number from command into arr
 int exec_comm(char* token, char** arg);
-void decrement_vec();
-int check_dup_exec_vec(char* token, char** arg,int ext_pipe_fd=-1);
-void remove_zero_vec();
+void decrement_vec(int idx);
+int check_dup_exec_vec(int v_idx,char* token, char** arg,int ext_pipe_fd=-1);
+void remove_zero_vec(int idx);
 int parse_line(char** ,char*);
 int validate_command(char* token);
 void check_redirection(char** arg);
@@ -66,6 +65,22 @@ int check_name_avail(string name);
 int user_fd_to_index(int fd);
 int user_id_to_fd(int id); 
 int pipe_alr_exist(int from_id, int to_id);
+
+int pipeVecArr_id_to_index(int id);
+int envname_to_idx(int i, string str); 
+
+void print_pipe_vec(){
+    cout<<"print_pipe_vec"<<endl;
+    cout<<"pipeVec_arr.size: "<<pipeVec_arr.size()<<endl;
+    for(int i=0; i<pipeVec_arr.size();i++){
+        cout<<"user id: "<<pipeVec_arr[i].second<<endl;
+        cout<<"pipeVec_arr.first.size: "<<pipeVec_arr[i].first.size()<<endl;
+        for(int j=0;j<pipeVec_arr[i].first.size(); j++){
+            cout<<"pipe[0]: "<<pipeVec_arr[i].first[j].first[0]<<endl;    
+            cout<<"n : "<<pipeVec_arr[i].first[j].second<<endl;    
+        }    
+    }    
+}
 
 /*
 *****************************************
@@ -111,8 +126,9 @@ int main (int argc, char* argv[]){
 	for(;;){
         cout<<"user_list.size(): "<<user_list.size()<<endl;
 
-		ready_set = read_set;
+        ready_set = read_set;
         //SELECT HERE
+        print_pipe_vec();
         cout<<"running select"<<endl;
 		int nready = select(nfds,&ready_set,(fd_set*)0,(fd_set*)0,(struct timeval*)0);
         if(nready<0){ perror("Error in select\n"); }
@@ -134,8 +150,16 @@ int main (int argc, char* argv[]){
             u.ip = (string)(inet_ntoa(cli_addr.sin_addr));
             u.port = to_string(ntohs(cli_addr.sin_port));
             u.fd = connfd;
+            u.env_name.push_back("PATH");
+            //u.env_addr.push_back(""); 
+            u.env_addr.push_back("bin"); 
+            setenv(u.env_name.back().c_str(),u.env_addr.back().c_str(),1);
             user_list.push_back(u);
             
+            //Create pipeVec for client and append to list
+            pipeVec_arr.push_back(*(new pair< vector<pair<int*,int> >, int >));
+            pipeVec_arr.back().second = u.id;
+
             //Tell other about me
             string mydetail = "*** User '("+u.name+")' entered from "+u.ip+"/"+u.port+". ***\n";
             broadcast_mess(mydetail,user_list,connfd,0);
@@ -149,13 +173,12 @@ int main (int argc, char* argv[]){
             if(connfd >= nfds)
                 nfds = connfd+1;
 		}
-		
         cout<<"nfds "<<nfds<<endl;
         int nfds_cpy = nfds;
 		for(int it_fd=0; it_fd<nfds_cpy; it_fd++){
             if(it_fd!=listenfd && FD_ISSET(it_fd,&ready_set)){
+                cout<<"id_fd: "<<it_fd<<endl;
                 bzero(buffer, BUFFER_SIZE);
-                setenv("PATH","bin:.",1);
                 n = read(it_fd, buffer, BUFFER_SIZE);
                 if(n<0){ perror("Error reading from socket"); exit(1);}
                 if(strncmp(buffer,"exit",4)==0){
@@ -168,7 +191,14 @@ int main (int argc, char* argv[]){
                     cerr<<"exit!!"<<endl;
                     continue; 
                 }
+
                 int savstdout = dup(1);
+              
+                //Setting env variables 
+                int j = user_fd_to_index(it_fd); 
+                for(int i=0; i<user_list[j].env_name.size(); i++){
+                    setenv(user_list[j].env_name[i].c_str(),user_list[j].env_addr[i].c_str(),1);
+                }
 
                 printf("### parse begin ####\n");
                 process_command(buffer, it_fd);
@@ -176,6 +206,7 @@ int main (int argc, char* argv[]){
 
                 fflush(stdout);
                 dup2(savstdout,1);
+                close(savstdout);
                 
                 char beginchar[5]="% ";
                 n = write(it_fd,beginchar,sizeof(beginchar));
@@ -262,6 +293,7 @@ int process_chat_command(int argc, char** arg,int fd){
 
 return 0;    
 }
+
 int user_id_to_fd(int id){
     for(int i=0;i<user_list.size();i++){
         if(user_list[i].id == id){
@@ -326,8 +358,8 @@ int remove_user(vector<user>& user_list, int fd, int* id_list){
             int u_id = user_list[i].id;
             //removing pipe in cli_pipe_list
             for(int j=cli_pipe_list.size()-1; j>=0; j--){
-                //if(cli_pipe_list[j].to==u_id || cli_pipe_list[k].from==u_id){
-                if(cli_pipe_list[j].to == u_id){
+                if(cli_pipe_list[j].to==u_id || cli_pipe_list[j].from==u_id){
+                //if(cli_pipe_list[j].to == u_id){
                     close(cli_pipe_list[j].pipefd[0]);    
                     close(cli_pipe_list[j].pipefd[1]);
                     cli_pipe_list.erase(cli_pipe_list.begin()+j);    
@@ -336,6 +368,8 @@ int remove_user(vector<user>& user_list, int fd, int* id_list){
             id_list[u_id] = 0;
             string mess = "*** User '("+user_list[i].name+")' left. ***\n";
             broadcast_mess(mess,user_list,fd,0);
+            //remove entry in pipe table
+            pipeVec_arr.erase(pipeVec_arr.begin()+pipeVecArr_id_to_index(u_id));
             user_list.erase(user_list.begin()+i);    
         }
 
@@ -353,6 +387,24 @@ int pipe_alr_exist(int from_id, int to_id){
     return -1;    
 }
 
+int pipeVecArr_id_to_index(int id){
+    for(int i=0; i<pipeVec_arr.size(); i++){
+        if(pipeVec_arr[i].second == id)
+            return i;    
+    }
+
+return -1;    
+}
+
+int envname_to_idx(int i, string str){
+    for(int j=0; j<user_list[i].env_name.size(); j++){
+        if(str.compare(user_list[i].env_name[j])==0){
+            return j;    
+        }    
+    }    
+
+    return -1;
+} 
 
 /*
 ****************************************
@@ -369,6 +421,9 @@ void process_command(char* command,int sockfd){
 	int fd,cli_fd0,cli_fd1,r_cli_fd0,r_cli_fd1;
     char command_cpy[10000];
     char* cmd;
+
+    int my_index = user_fd_to_index(sockfd);
+    int my_id = user_list[my_index].id;
 
 	pcount=0; 							//count the order of command
     n_inst=0;
@@ -449,6 +504,7 @@ void process_command(char* command,int sockfd){
                             ;
                             cli_fd0 = cp.pipefd[0];
                             cli_fd1 = cp.pipefd[1];
+                            close(cli_fd0);
                         }
                     }
                 }
@@ -456,8 +512,6 @@ void process_command(char* command,int sockfd){
                    cerr<<"getting a pipe from other client"<<endl;
                    int sender_id = atoi(temp+1);
                    int sender_fd = user_id_to_fd(sender_id);
-                   int my_index = user_fd_to_index(sockfd);
-                   int my_id = user_list[my_index].id;
 
                    if(sender_fd == -1){
                         //ADDITIONAL
@@ -509,90 +563,114 @@ void process_command(char* command,int sockfd){
 
 		if(strcmp(arg[0],"printenv")==0){
             cout<<"inside printenv"<<endl;
-			char str[1000]="";
-			strcat(str,arg[1]);
-			strcat(str,"=");
-			strcat(str,getenv(arg[1]));
-			strcat(str,"\n");
-			write(sockfd,"eatme\r\n",7);
-			write(sockfd,str,sizeof(str));
+            int i = user_fd_to_index(sockfd);
+            int j = envname_to_idx(i, (string)arg[1]); //envname->index()
+            if(j!=-1){
+                string msg = user_list[i].env_name[j] +"="+ user_list[i].env_addr[j]+"\n";
+                write(sockfd,"eatme\r\n",7);
+                write(sockfd,msg.c_str(),sizeof(char)*strlen(msg.c_str()));
+            }
 			break;
 		}
 		else if(strcmp(token,"setenv")==0){
 			if(setenv(arg[1],arg[2],1) != 0){
 				cerr<<"setenv un-successfully setted"<<endl;
 			}
+            int i = user_fd_to_index(sockfd);
+            int j = envname_to_idx(i, (string)arg[1]); //envname->index()
+            if(j==-1){
+                user_list[i].env_name.push_back((string) arg[1]);
+                user_list[i].env_addr.push_back((string) arg[2]);
+            }
+            else{
+                user_list[i].env_name[j]= (string) arg[1];
+                user_list[i].env_addr[j]= (string) arg[2];
+            }
 			break;
 		}
         cerr<<"before process chat command"<<endl;
         if(process_chat_command(argc,arg,sockfd)==0)
             break;
 		
+        int pipelist_i = pipeVecArr_id_to_index(my_id);
+        int* temp_pipe_fd;
+
+		pipeVec_arr[pipelist_i].first.push_back(*(new pair<int*, int>));  	//push to pipe		
+		pipeVec_arr[pipelist_i].first.back().first = new int[2];
+		pipeVec_arr[pipelist_i].first.back().second = n_arr[pcount];
+		pipe(pipeVec_arr[pipelist_i].first.back().first);
+		cout<<"newly allocate pipE[0]:      "<<pipeVec_arr[pipelist_i].first.back().first[0]<<endl;
+		cout<<"newly allocate pipe[1]:      "<<pipeVec_arr[pipelist_i].first.back().first[1]<<endl;
+
+        temp_pipe_fd = pipeVec_arr[pipelist_i].first.back().first; 
+/*
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
 		pipeVec.back().first = new int[2];
 		pipeVec.back().second = n_arr[pcount];
 		pipe(pipeVec.back().first);
 		cout<<pipeVec.back().first[0]<<endl;
+*/
 		cout<<"before fork()"<<endl;
         cout<<"toClientPipe: "<<toClientPipe<<". dupStdin: "<<dupStdin<<endl;
 		pid = fork();
 		if(pid == 0){
-			close(pipeVec.back().first[0]);
-            /*if(dupStdin){
-                //dup2(r_cli_fd0,0);
-			    dup2(pipeVec.back().first[1],1);		//direct the stdout to pipe
-			    close(pipeVec.back().first[1]);
-                //exec_comm(token,arg);
-                check_dup_exec_vec(token,arg,r_cli_fd0);
-                _exit(EXIT_FAILURE);
-            }
-            */
+            cout<<"CHILD closing pipe [0]:    "<<temp_pipe_fd[0]<<endl;
+			close(temp_pipe_fd[0]);
 			if(toFile == true){
 			    dup2(fd,1);					//direct the stdout to file
-			    dup2(pipeVec.back().first[1],2);		//direct the stderr 
-			    close(pipeVec.back().first[1]);
-			    check_dup_exec_vec(token,arg);
+			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
+			    close(temp_pipe_fd[1]);
+			    check_dup_exec_vec(pipelist_i,token,arg);
 			}
             else if(toClientPipe==true && dupStdin==false){
                 cerr<<"dup to client"<<endl;
                 dup2(cli_fd1,1);   
                 dup2(cli_fd1,2);
                 close(cli_fd1);   
-			    check_dup_exec_vec(token,arg);
+			    //close(temp_pipe_fd[1]);
+			    check_dup_exec_vec(pipelist_i,token,arg);
             }
             else if(toClientPipe==false && dupStdin==true){
-			    dup2(pipeVec.back().first[1],1);		//direct the stdout to pipe
-			    close(pipeVec.back().first[1]);
-                check_dup_exec_vec(token,arg,r_cli_fd0);
+			    dup2(temp_pipe_fd[1],1);		//direct the stdout to pipe
+			    close(temp_pipe_fd[1]);
+                check_dup_exec_vec(pipelist_i,token,arg,r_cli_fd0);
             }
             else if(toClientPipe==true && dupStdin==true){
                 cerr<<"BOTH TRUE dup to client"<<endl;
                 dup2(cli_fd1,1);   
                 dup2(cli_fd1,2);
                 close(cli_fd1);   
-                check_dup_exec_vec(token,arg,r_cli_fd0);
+			    //close(temp_pipe_fd[1]);
+                check_dup_exec_vec(pipelist_i,token,arg,r_cli_fd0);
             }
             else if(dontDup){
                 cerr<<"not dupping"<<endl;
-                check_dup_exec_vec(token, arg);    
+                check_dup_exec_vec(pipelist_i,token, arg);    
             }
             else{
-			    dup2(pipeVec.back().first[1],1);		//direct the stdout to pipe
-			    //dup2(pipeVec.back().first[1],2);		//direct the stderr 
-			    close(pipeVec.back().first[1]);
-                cerr<<"check_dup_exec start"<<endl;
-			    check_dup_exec_vec(token,arg);
+                cerr<<"CHILD closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
+			    dup2(temp_pipe_fd[1],1);		//direct the stdout to pipe
+			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
+			    close(temp_pipe_fd[1]);
+                //cerr<<"check_dup_exec start"<<endl;
+			    check_dup_exec_vec(pipelist_i,token,arg);
 			}
 
 			_exit(EXIT_FAILURE);
 		}else if(pid<0){ 
 			perror("parse command: fork failed\n");
 		}
-		else{	
-            cerr<<"*** back1 to parent"<<endl;
+		else{	//PARENT
 			wait(&status);
-			close(pipeVec.back().first[1]);
-		 	close(fd);
+			if(status == 1){
+				perror("parent: child process terminated with an error\n");
+			}
+            cout<<"PARENT closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
+			close(temp_pipe_fd[1]);
+
+            close(fd);
+            cerr<<"*** back1 to parent"<<endl;
+            cerr<<"*** back2 to parent"<<endl;
             if(toClientPipe==true){
                 close(cli_fd1);
             }
@@ -601,28 +679,36 @@ void process_command(char* command,int sockfd){
                 cli_pipe_list.erase(cli_pipe_list.begin() + pipe_index);       
                 //close(r_cli_fd1);
             }
-            cerr<<"*** back2 to parent"<<endl;
-			if(status == 1){
-				perror("parent: child process terminated with an error\n");
-			}
-
             cerr<<"writing to client "<<endl;
-			if(pipeVec.back().second == -2){
+			if(pipeVec_arr[pipelist_i].first.back().second == -2){
 				char buffer[BUFFER_SIZE];
 				memset(buffer,0,BUFFER_SIZE);
-				while(read(pipeVec.back().first[0],buffer, sizeof(buffer)) != 0){
+				while(read(temp_pipe_fd[0],buffer, sizeof(buffer)) != 0){
 					write(sockfd,"eatme\r\n",7);
-                    cerr<<"send buffer: "<<buffer<<endl;
+                    cerr<<"send buffer: ["<<buffer<<"]"<<endl;
+                    //printf("buffer(int): %d\n",buffer[0]);
 					write(sockfd,buffer,BUFFER_SIZE);
 				}
-				close(pipeVec.back().first[0]);
-				pipeVec.pop_back();
+                cout<<"PARENT WRITING TO CLIENT closing pipe [0]:    "<<temp_pipe_fd[0]<<endl;
+				close(temp_pipe_fd[0]);
+
+
+				pipeVec_arr[pipelist_i].first.pop_back();
 			}
             cerr<<"DONE writing to client "<<endl;
-				
-			remove_zero_vec();					//remove vec element whose counter = 0
-			decrement_vec();					//-- each current element in pipe
+            cerr<<"calling remove zero "<<endl;
+			remove_zero_vec(pipelist_i);					//remove vec element whose counter = 0
+            cerr<<"calling decrement "<<endl;
+			decrement_vec(pipelist_i);					//-- each current element in pipe
 
+            /*
+            int fdd[2];
+            pipe(fdd);
+            cout<<"CALEE new fdd[0]: "<<fdd[0]<<endl;
+            cout<<"CALEE new fdd[1]: "<<fdd[1]<<endl;
+            close(fdd[0]);
+            close(fdd[1]);
+            */
 			pcount++; 							//instruction counter
 		}
 
@@ -643,49 +729,49 @@ int parse_line(char** arr, char* command){
     return i;
 }
 
-void remove_zero_vec(){
-	for(int i=pipeVec.size()-1; i>=0; i--){
-		if((*(pipeVec.begin()+i)).second == 0){	
-			close((*(pipeVec.begin()+i)).first[0]);
-			pipeVec.erase(pipeVec.begin()+i);
+void remove_zero_vec(int idx){
+	for(int i=pipeVec_arr[idx].first.size()-1; i>=0; i--){
+		if((*(pipeVec_arr[idx].first.begin()+i)).second == 0){	
+            cout<<"PARENT REMOVE ZERO closing pipe [0]:    "<<(*(pipeVec_arr[idx].first.begin()+i)).first[0]<<endl;
+			close((*(pipeVec_arr[idx].first.begin()+i)).first[0]);
+			pipeVec_arr[idx].first.erase(pipeVec_arr[idx].first.begin()+i);
 		}
 	}
 
 }
 
-void decrement_vec(){
-	for(int i=0; i<pipeVec.size(); i++){
-		--pipeVec[i].second;
+void decrement_vec(int idx){
+	for(int i=0; i<pipeVec_arr[idx].first.size(); i++){
+		--pipeVec_arr[idx].first[i].second;
 	}	
 }
 
-int check_dup_exec_vec(char* token, char** arg, int ext_pipe_fd){
-    //cout<<"ext pipe fd: "<<ext_pipe_fd<<endl;
+int check_dup_exec_vec(int v_idx, char* token, char** arg, int ext_pipe_fd){
 	int t_pipe[2];
-    //bool stdin_redirect_flag=false;
 	pipe(t_pipe);
-
-	for(int i=0; i<pipeVec.size(); i++){
-		if(pipeVec[i].second == 0){
+    //cerr<<"CheckDup: before for loop"<<endl;
+	for(int i=0; i<pipeVec_arr[v_idx].first.size(); i++){
+		if(pipeVec_arr[v_idx].first[i].second == 0){
 			char buff[BUFFER_SIZE]={""};
 			memset(buff,0,BUFFER_SIZE);
-			read(pipeVec[i].first[0],buff,BUFFER_SIZE);
+			read(pipeVec_arr[v_idx].first[i].first[0],buff,BUFFER_SIZE);
             //cout<<"checkdup: buffer: "<<buff<<endl;
 			write(t_pipe[1],buff,strlen(buff));
-    //        stdin_redirect_flag = true;
+            //cerr<<"CheckDup: counter == 0. read write. first[0]: "<<pipeVec_arr[v_idx].first[i].first[0]<<endl;
 		}
 	}
+    //cerr<<"CheckDup: after for loop"<<endl;
     if(ext_pipe_fd != -1){
         char buff[BUFFER_SIZE]={""};
         memset(buff,0,BUFFER_SIZE);
         read(ext_pipe_fd,buff,BUFFER_SIZE);    
         write(t_pipe[1],buff,strlen(buff));
-        //
         //close(ext_pipe_fd);
     }	
 	dup2(t_pipe[0],0);
 
 	close(t_pipe[1]);
+    //cerr<<"CheckDup: calling exec_comm"<<endl;
 return	exec_comm(token, arg); 
 }
 
