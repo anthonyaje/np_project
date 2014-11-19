@@ -54,11 +54,11 @@ void decrement_vec(int idx);
 int check_dup_exec_vec(int v_idx,char* token, char** arg,int ext_pipe_fd=-1);
 void remove_zero_vec(int idx);
 int parse_line(char** ,char*);
-int validate_command(char* token);
+int validate_command(char** arg,int sockfd);
 void check_redirection(char** arg);
 
 int remove_user(vector<user>& user_list, int fd, int* id_list);
-int broadcast_mess(string& mess, vector<user>& list, int myfd,int notme);
+int broadcast_mess(string& mess, vector<user>& list, int myfd,int notme,int welcome=0);
 int process_chat_command(int argc, char** arg, int fd);
 int request_id(int* arr);
 int check_name_avail(string name);
@@ -77,7 +77,7 @@ void print_pipe_vec(){
         cout<<"pipeVec_arr.first.size: "<<pipeVec_arr[i].first.size()<<endl;
         for(int j=0;j<pipeVec_arr[i].first.size(); j++){
             cout<<"pipe[0]: "<<pipeVec_arr[i].first[j].first[0]<<endl;    
-            cout<<"n : "<<pipeVec_arr[i].first[j].second<<endl;    
+            cout<<"pipe[0] count: "<<pipeVec_arr[i].first[j].second<<endl;    
         }    
     }    
 }
@@ -121,28 +121,27 @@ int main (int argc, char* argv[]){
 	FD_ZERO(&ready_set);
 	FD_SET(listenfd, &read_set);	
 	nfds = listenfd+1;	
-	//nfds = 256;	
+	nfds = getdtablesize();	
 
 	for(;;){
         cout<<"user_list.size(): "<<user_list.size()<<endl;
-
+        
         ready_set = read_set;
         //SELECT HERE
-        print_pipe_vec();
+        //print_pipe_vec();
         cout<<"running select"<<endl;
 		int nready = select(nfds,&ready_set,(fd_set*)0,(fd_set*)0,(struct timeval*)0);
         if(nready<0){ perror("Error in select\n"); }
+
 		if(FD_ISSET(listenfd,&ready_set)){
 			cli_addr_size = sizeof(cli_addr);
 			if( (connfd = accept(listenfd,(struct sockaddr*) &cli_addr, (socklen_t*)&cli_addr_size)) <0){
 				perror("Error on accept");
 				exit(1);
 			}
-			char welcomenote [200] = "****************************************\n** Welcome to the information server. **\n****************************************\n";
+//			char welcomenote [] = "****************************************\n** Welcome to the information server. **\n****************************************\n";
 
 			printf("client connection accepted!\n");
-			n = write(connfd,welcomenote,sizeof(welcomenote));
-			if(n<0){ perror("Error writing to socket"); exit(1); }
             
             user u;        
             u.id = request_id(id_list);
@@ -160,18 +159,29 @@ int main (int argc, char* argv[]){
             pipeVec_arr.push_back(*(new pair< vector<pair<int*,int> >, int >));
             pipeVec_arr.back().second = u.id;
 
+			//n = write(connfd,welcomenote,sizeof(welcomenote));
+			//if(n<0){ perror("Error writing to socket"); exit(1); }
+
             //Tell other about me
             string mydetail = "*** User '("+u.name+")' entered from "+u.ip+"/"+u.port+". ***\n";
-            broadcast_mess(mydetail,user_list,connfd,0);
-            n = write(connfd,"% ",sizeof(char)*strlen("% "));
-            if(n<0){ perror("Error writing to socket"); exit(1);}
-
-            cout<<"connfd"<<connfd<<endl;
-            user_count++;
+            broadcast_mess(mydetail,user_list,connfd,0,1);
 			FD_SET(connfd,&read_set);
+            /*for(int f=3; f<nfds; ++f){
+                if(f != listenfd && FD_ISSET(f,&read_set)){
+                    write(f,mydetail.c_str(),strlen(mydetail.c_str()));
+                }
+            }*/
+            cout<<"sleeping....."<<endl;
+            //usleep(300000);
+            cerr<<"----------------- sending %-------------"<<endl;
+            n = write(connfd,"% ",sizeof(char)*strlen(("i% ")));
+            if(n<0){ perror("Error writing to socket"); exit(1);}
+            cerr<<"-----------------done sending %-------------"<<endl;
+
+            user_count++;
             //adjust the upperbound for the ready_set
-            if(connfd >= nfds)
-                nfds = connfd+1;
+            //if(connfd >= nfds)
+            //    nfds = connfd+1;
 		}
         cout<<"nfds "<<nfds<<endl;
         int nfds_cpy = nfds;
@@ -181,65 +191,80 @@ int main (int argc, char* argv[]){
                 bzero(buffer, BUFFER_SIZE);
                 n = read(it_fd, buffer, BUFFER_SIZE);
                 if(n<0){ perror("Error reading from socket"); exit(1);}
+
+                //EXIT
                 if(strncmp(buffer,"exit",4)==0){
                     //remove user from list
                     remove_user(user_list,it_fd, id_list);
                     cout<<"after remove user"<<endl;
-                    close(it_fd);
-                    FD_CLR(it_fd,&read_set);
                     user_count--;
+
+                    /*cerr<<"----------------- sending %-------------"<<endl;
+                    usleep(1000000);
+                    n = write(it_fd,"% ",sizeof(char)*strlen("% "));
+                    if(n<0){ perror("Error writing to socket"); exit(1);}
+                    cerr<<"----------------- done sending %-------------"<<endl;
+                    */
+                    
+                    FD_CLR(it_fd,&read_set);
                     cerr<<"exit!!"<<endl;
-                    continue; 
+                    break;
+                    //continue; 
                 }
 
                 int savstdout = dup(1);
-              
+                int sv_err = dup(2); 
                 //Setting env variables 
                 int j = user_fd_to_index(it_fd); 
                 for(int i=0; i<user_list[j].env_name.size(); i++){
                     setenv(user_list[j].env_name[i].c_str(),user_list[j].env_addr[i].c_str(),1);
                 }
 
-                printf("### parse begin ####\n");
+                printf("\n\n############## parse begin ####\n");
                 process_command(buffer, it_fd);
-                printf("### parse done ####\n\n\n");
+                printf("############## parse done ####\n\n\n");
 
                 fflush(stdout);
                 dup2(savstdout,1);
+                dup2(sv_err,2);
+                close(sv_err);
                 close(savstdout);
-                
-                char beginchar[5]="% ";
-                n = write(it_fd,beginchar,sizeof(beginchar));
+
+              /*  cerr<<"----------------- sending %-------------"<<endl;
+                usleep(1000000);
+                n = write(it_fd,"% ",sizeof(char)*strlen("p% "));
                 if(n<0){ perror("Error writing to socket"); exit(1);}
+                cerr<<"----------------- done sending %-------------"<<endl;
+                */
 
                 bzero(buffer, BUFFER_SIZE);
             }
-		}
-	}
+        }
+    }
 
-return 0;
+    return 0;
 }
 
 
 /*
-****************************************
-***  process_chat_command()
-***
-*****************************************
-*/
+ ****************************************
+ ***  process_chat_command()
+ ***
+ *****************************************
+ */
 int process_chat_command(int argc, char** arg,int fd){
     if(strcmp(arg[0],"who")==0){
         string str = "<ID>\t<nickname>\t<IP/port>\t<indicate me>\n";
         if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
             perror("Error writing to socket"); 
         for(int i=0; i<user_list.size(); i++){
-           str = to_string(user_list[i].id) +"\t"+ user_list[i].name+"\t"+ user_list[i].ip +"/"+ user_list[i].port+"\t";
-           if(user_list[i].fd == fd)
-               str += "<-me\n";
-           else
-               str += "\n";
-           if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
-               perror("Error writing to socket"); 
+            str = to_string(user_list[i].id) +"\t"+ user_list[i].name+"\t"+ user_list[i].ip +"/"+ user_list[i].port+"\t";
+            if(user_list[i].fd == fd)
+                str += "<-me\n";
+            else
+                str += "\n";
+            if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
+                perror("Error writing to socket"); 
         }
     }
     else if(strcmp(arg[0],"yell")==0){
@@ -249,7 +274,7 @@ int process_chat_command(int argc, char** arg,int fd){
         }
         msg+="\n";
         broadcast_mess(msg,user_list,fd,0);
-    
+
     }
     else if(strcmp(arg[0],"tell")==0){
         int to_fd = user_id_to_fd(atoi(arg[1]));
@@ -269,7 +294,7 @@ int process_chat_command(int argc, char** arg,int fd){
             if(write(to_fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
                 perror("Error writing to socket"); 
         }
-        
+
 
     }
     else if(strcmp(arg[0],"name")==0){
@@ -277,7 +302,7 @@ int process_chat_command(int argc, char** arg,int fd){
         if(check_name_avail((string) arg[1])==0){
             string msg = "*** User '("+(string)arg[1]+")' already exists. ***\n";
             if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
-               perror("Error writing to socket"); 
+                perror("Error writing to socket"); 
         }
         else{
             //assign name
@@ -332,11 +357,12 @@ int request_id(int* arr){
    return 0;
 }
 
-int broadcast_mess(string& mess, vector<user>& list,int myfd, int notme){
+int broadcast_mess(string& mess, vector<user>& list,int myfd, int notme, int welcome){
     int n;
     if(notme){
         for(int i=0; i<list.size(); i++){
             if(list[i].fd != myfd){
+                cerr<<"sending1 to "<<list[i].id<<endl;
                 n = write(list[i].fd,(char*) mess.c_str(),sizeof(char)*strlen(mess.c_str()) );
                 if(n<0){ perror("Error writing to socket"); }
             }
@@ -344,8 +370,27 @@ int broadcast_mess(string& mess, vector<user>& list,int myfd, int notme){
     }
     else{
         for(int i=0; i<list.size(); i++){
-                n = write(list[i].fd,(char*) mess.c_str(),sizeof(char)*strlen(mess.c_str()) );
+            cerr<<"sending2 to "<<list[i].id<<endl;
+            //usleep(300000);
+           if(list[i].fd == myfd){
+               string welcomenote = "****************************************\n** Welcome to the information server. **\n****************************************\n";
+               string str;
+               if(welcome==1){
+                str = welcomenote + mess;
+               }
+               else{
+                str = mess;    
+               }
+                n = write(list[i].fd,(char*) (str).c_str(),sizeof(char)*strlen(str.c_str()) );
                 if(n<0){ perror("Error writing to socket"); }
+                //close(list[i].fd);
+                //n = write(list[i].fd,"% ",sizeof(char)*strlen("% "));
+                //if(n<0){ perror("Error writing to socket"); exit(1);}
+           }
+           else{
+                n = write(list[i].fd,(char*) (mess).c_str(),sizeof(char)*(strlen(mess.c_str())) );
+                if(n<0){ perror("Error writing to socket"); }
+           }
         }
     }
 
@@ -356,18 +401,25 @@ int remove_user(vector<user>& user_list, int fd, int* id_list){
     for(int i=user_list.size()-1; i>=0; i--)
         if(user_list[i].fd == fd){
             int u_id = user_list[i].id;
+            //BROADCAST
+            string mess = "*** User '("+user_list[i].name+")' left. ***\n";
+            write(fd,mess.c_str(),mess.length());
+            //usleep(300000);
+            //write(fd,"% ",3);
+            close(fd);
+            broadcast_mess(mess,user_list,fd,1);
+
             //removing pipe in cli_pipe_list
             for(int j=cli_pipe_list.size()-1; j>=0; j--){
                 if(cli_pipe_list[j].to==u_id || cli_pipe_list[j].from==u_id){
-                //if(cli_pipe_list[j].to == u_id){
                     close(cli_pipe_list[j].pipefd[0]);    
                     close(cli_pipe_list[j].pipefd[1]);
                     cli_pipe_list.erase(cli_pipe_list.begin()+j);    
                 }
             }
             id_list[u_id] = 0;
-            string mess = "*** User '("+user_list[i].name+")' left. ***\n";
-            broadcast_mess(mess,user_list,fd,0);
+            //string mess = "*** User '("+user_list[i].name+")' left. ***\n";
+            //broadcast_mess(mess,user_list,fd,0);
             //remove entry in pipe table
             pipeVec_arr.erase(pipeVec_arr.begin()+pipeVecArr_id_to_index(u_id));
             user_list.erase(user_list.begin()+i);    
@@ -478,19 +530,21 @@ void process_command(char* command,int sockfd){
                     
                     cout<<"Dest id: "<<dest_id<<endl;
                     if(dest_fd == -1){
-                        string str = "*** Error: user #"+to_string(dest_id)+" does not exist yet. ***\n";
+                        string str = "*** Error: user #"+to_string(dest_id)+" does not exist yet. ***\n% ";
                         write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
                         dontDup = true;       
-                        break;
+                        return;
+                        //break;
                     }
                     else{
                         //add new pipe to cli_pipe_list if it hasnt existed yet
                         if(pipe_alr_exist(source_id,dest_id) != -1){
                             toClientPipe=false;   
                             dontDup = true;       
-                            string str = " *** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n";
+                            string str = " *** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n% ";
                             write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
-                            break;
+                            return;
+                            //break;
                         }
                         else{
                             toClientPipe=true;
@@ -504,7 +558,8 @@ void process_command(char* command,int sockfd){
                             ;
                             cli_fd0 = cp.pipefd[0];
                             cli_fd1 = cp.pipefd[1];
-                            close(cli_fd0);
+                            cerr<<source_id<<"  SEND PIPE TO: "<<dest_id<<"\t\t\t\t Clifd0:    "<<cli_fd0<<endl;
+                            //close(cli_fd0);
                         }
                     }
                 }
@@ -513,14 +568,21 @@ void process_command(char* command,int sockfd){
                    int sender_id = atoi(temp+1);
                    int sender_fd = user_id_to_fd(sender_id);
 
+                    //int u_index = user_fd_to_index(sockfd);  
+                    //int u_id = user_list[u_index].id;
+                    //int dest_fd = user_id_to_fd(dest_id);
+                    //int dest_index = user_fd_to_index(dest_fd);  
+
                    if(sender_fd == -1){
                         //ADDITIONAL
                         cerr<<"user id not found"<<endl;         
+                   //    return;
                    }
                    if(pipe_alr_exist(sender_id,my_id)==-1){
-                       string msg = "*** Error: the pipe #"+to_string(sender_id)+"->#"+to_string(my_id)+" does not exist yet. ***\n"; 
+                       string msg = "*** Error: the pipe #"+to_string(sender_id)+"->#"+to_string(my_id)+" does not exist yet. ***\n% "; 
                        write(sockfd, msg.c_str(),sizeof(char)*strlen(msg.c_str()));
-                       break;
+                       return;
+                       //break;
                    }
                    else{
                         //read from pipe and dup to stdin
@@ -534,6 +596,8 @@ void process_command(char* command,int sockfd){
                         dupStdin=true;
                         string str = "*** "+user_list[my_index].name+" (#"+to_string(user_list[my_index].id)+") just received from "+user_list[user_fd_to_index(sender_fd)].name+" (#"+to_string(user_list[user_fd_to_index(sender_fd)].id)+") by '"+(string)cmd+"' ***\n";
                         broadcast_mess(str,user_list,sockfd,0);
+                        cerr<<my_id<<"  RECV PIPE FROM: "<<sender_id<<"\t\t\t\t Clifd0:    "<<r_cli_fd0<<endl;
+                        cerr<<"pipeindex <: "<<pipe_index<<endl;
                    }
 
                 }
@@ -551,24 +615,15 @@ void process_command(char* command,int sockfd){
 			break;			
 		}
 
-		if(validate_command(arg[0])==0){
-			char unknowncomm [BUFFER_SIZE] = "Unknown command: [";
-			strcat(unknowncomm,arg[0]);
-			strcat(unknowncomm, "].\n");
-			write(sockfd,"eatme\r\n",7);
-			write(sockfd,unknowncomm,sizeof(unknowncomm));
-			cout<<unknowncomm<<endl;
-			break;
-		}
-
 		if(strcmp(arg[0],"printenv")==0){
             cout<<"inside printenv"<<endl;
             int i = user_fd_to_index(sockfd);
             int j = envname_to_idx(i, (string)arg[1]); //envname->index()
             if(j!=-1){
                 string msg = user_list[i].env_name[j] +"="+ user_list[i].env_addr[j]+"\n";
-                write(sockfd,"eatme\r\n",7);
-                write(sockfd,msg.c_str(),sizeof(char)*strlen(msg.c_str()));
+                cout<<"message: "<<msg<<endl;
+                int n = write(sockfd,msg.c_str(),sizeof(char)*strlen(msg.c_str()));
+                cout<<"write ret: "<<n<<endl;
             }
 			break;
 		}
@@ -586,12 +641,20 @@ void process_command(char* command,int sockfd){
                 user_list[i].env_name[j]= (string) arg[1];
                 user_list[i].env_addr[j]= (string) arg[2];
             }
+            //write(sockfd,"% ",3);    
 			break;
 		}
+
+//		if(validate_command(arg,sockfd)==-1){
+//			break;
+//		}
+
         cerr<<"before process chat command"<<endl;
-        if(process_chat_command(argc,arg,sockfd)==0)
+        if(process_chat_command(argc,arg,sockfd)==0){
+            //write(sockfd,"% ",3);    
             break;
-		
+        }
+
         int pipelist_i = pipeVecArr_id_to_index(my_id);
         int* temp_pipe_fd;
 
@@ -603,19 +666,14 @@ void process_command(char* command,int sockfd){
 		cout<<"newly allocate pipe[1]:      "<<pipeVec_arr[pipelist_i].first.back().first[1]<<endl;
 
         temp_pipe_fd = pipeVec_arr[pipelist_i].first.back().first; 
-/*
-		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
-		pipeVec.back().first = new int[2];
-		pipeVec.back().second = n_arr[pcount];
-		pipe(pipeVec.back().first);
-		cout<<pipeVec.back().first[0]<<endl;
-*/
+
 		cout<<"before fork()"<<endl;
         cout<<"toClientPipe: "<<toClientPipe<<". dupStdin: "<<dupStdin<<endl;
 		pid = fork();
 		if(pid == 0){
             cout<<"CHILD closing pipe [0]:    "<<temp_pipe_fd[0]<<endl;
 			close(temp_pipe_fd[0]);
+
 			if(toFile == true){
 			    dup2(fd,1);					//direct the stdout to file
 			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
@@ -631,7 +689,9 @@ void process_command(char* command,int sockfd){
 			    check_dup_exec_vec(pipelist_i,token,arg);
             }
             else if(toClientPipe==false && dupStdin==true){
+                cerr<<"dupStdin only: "<<r_cli_fd0<<endl;
 			    dup2(temp_pipe_fd[1],1);		//direct the stdout to pipe
+			    dup2(temp_pipe_fd[1],2);		//direct the stdout to pipe
 			    close(temp_pipe_fd[1]);
                 check_dup_exec_vec(pipelist_i,token,arg,r_cli_fd0);
             }
@@ -652,31 +712,56 @@ void process_command(char* command,int sockfd){
 			    dup2(temp_pipe_fd[1],1);		//direct the stdout to pipe
 			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
 			    close(temp_pipe_fd[1]);
-                //cerr<<"check_dup_exec start"<<endl;
-			    check_dup_exec_vec(pipelist_i,token,arg);
+                cerr<<"check_dup_exec start"<<endl;
+			    if(check_dup_exec_vec(pipelist_i,token,arg)<0){
+                    cerr<<"errorrr"<<endl;    
+                }
+                //string err_message = "Unknown command: [" + (string)token + "].\n";
+                //write(sockfd,err_message.c_str(),err_message.length());
 			}
-
-			_exit(EXIT_FAILURE);
+            
+			exit(1);
 		}else if(pid<0){ 
 			perror("parse command: fork failed\n");
 		}
 		else{	//PARENT
+            cerr<<"*** back1 to parent"<<endl;
 			wait(&status);
 			if(status == 1){
 				perror("parent: child process terminated with an error\n");
 			}
+            cout<<"Child return status:         "<<status<<endl;
             cout<<"PARENT closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
 			close(temp_pipe_fd[1]);
 
             close(fd);
-            cerr<<"*** back1 to parent"<<endl;
             cerr<<"*** back2 to parent"<<endl;
+            if(status == 256){//exec error
+                cerr<<"STATUS: "<<status<<endl;
+				pipeVec_arr[pipelist_i].first.pop_back();
+                print_pipe_vec();
+                break;
+            }
             if(toClientPipe==true){
-                close(cli_fd1);
+                //close(cli_fd1);
             }
             if(dupStdin==true){
+                cerr<<"pipe_index: "<<pipe_index<<endl;
+                cerr<<"DUPSTDIN ERASE before: "<<endl;
+                for(int i=0; i<cli_pipe_list.size(); i++){
+                    cerr<<"from "<<(*(cli_pipe_list.begin()+i)).from<<endl; 
+                    cerr<<"to "<<(*(cli_pipe_list.begin()+i)).to<<endl; 
+                    cerr<<"fd "<<(*(cli_pipe_list.begin()+i)).pipefd[0]<<endl<<endl; 
+                    
+                }
                 close(r_cli_fd0);
                 cli_pipe_list.erase(cli_pipe_list.begin() + pipe_index);       
+                cerr<<"DUPSTDIN ERASE after: "<<endl;
+                for(int i=0; i<cli_pipe_list.size(); i++){
+                    cerr<<"from "<<(*(cli_pipe_list.begin()+i)).from<<endl; 
+                    cerr<<"to "<<(*(cli_pipe_list.begin()+i)).to<<endl; 
+                    cerr<<"fd "<<(*(cli_pipe_list.begin()+i)).pipefd[0]<<endl<<endl; 
+                }
                 //close(r_cli_fd1);
             }
             cerr<<"writing to client "<<endl;
@@ -684,23 +769,27 @@ void process_command(char* command,int sockfd){
 				char buffer[BUFFER_SIZE];
 				memset(buffer,0,BUFFER_SIZE);
 				while(read(temp_pipe_fd[0],buffer, sizeof(buffer)) != 0){
-					write(sockfd,"eatme\r\n",7);
                     cerr<<"send buffer: ["<<buffer<<"]"<<endl;
-                    //printf("buffer(int): %d\n",buffer[0]);
-					write(sockfd,buffer,BUFFER_SIZE);
+                    printf("buffer(int): %d\n",buffer[0]);
+                    string msg = (string) buffer + "\n";
+					write(sockfd,msg.c_str(),msg.length());
 				}
+                //write(sockfd,"% ",3);    
                 cout<<"PARENT WRITING TO CLIENT closing pipe [0]:    "<<temp_pipe_fd[0]<<endl;
 				close(temp_pipe_fd[0]);
 
-
 				pipeVec_arr[pipelist_i].first.pop_back();
 			}
+            else{
+            }
             cerr<<"DONE writing to client "<<endl;
-            cerr<<"calling remove zero "<<endl;
-			remove_zero_vec(pipelist_i);					//remove vec element whose counter = 0
-            cerr<<"calling decrement "<<endl;
-			decrement_vec(pipelist_i);					//-- each current element in pipe
 
+            cerr<<"calling remove zero "<<endl;
+            remove_zero_vec(pipelist_i);					//remove vec element whose counter = 0
+            cerr<<"calling decrement "<<endl;
+            decrement_vec(pipelist_i);					//-- each current element in pipe
+            cout<<"Printe PIPE"<<endl;
+            print_pipe_vec();
             /*
             int fdd[2];
             pipe(fdd);
@@ -713,6 +802,7 @@ void process_command(char* command,int sockfd){
 		}
 
 	}
+    write(sockfd,"% ",3);    
 }
 
 int parse_line(char** arr, char* command){
@@ -748,31 +838,38 @@ void decrement_vec(int idx){
 
 int check_dup_exec_vec(int v_idx, char* token, char** arg, int ext_pipe_fd){
 	int t_pipe[2];
+    char buff[BUFFER_SIZE]={""};
+    int pid;
+
 	pipe(t_pipe);
     //cerr<<"CheckDup: before for loop"<<endl;
 	for(int i=0; i<pipeVec_arr[v_idx].first.size(); i++){
 		if(pipeVec_arr[v_idx].first[i].second == 0){
-			char buff[BUFFER_SIZE]={""};
 			memset(buff,0,BUFFER_SIZE);
 			read(pipeVec_arr[v_idx].first[i].first[0],buff,BUFFER_SIZE);
-            //cout<<"checkdup: buffer: "<<buff<<endl;
+            //cerr<<"checkdup: buffer: "<<buff<<endl;
 			write(t_pipe[1],buff,strlen(buff));
             //cerr<<"CheckDup: counter == 0. read write. first[0]: "<<pipeVec_arr[v_idx].first[i].first[0]<<endl;
 		}
 	}
-    //cerr<<"CheckDup: after for loop"<<endl;
+    ///cerr<<"CheckDup: after for loop"<<endl;
     if(ext_pipe_fd != -1){
-        char buff[BUFFER_SIZE]={""};
         memset(buff,0,BUFFER_SIZE);
-        read(ext_pipe_fd,buff,BUFFER_SIZE);    
-        write(t_pipe[1],buff,strlen(buff));
+        //cerr<<cli_pipe_list.size()<<endl;
+       // cerr<<"read from cli pipe"<<ext_pipe_fd<<endl;
+        int n = read(ext_pipe_fd,buff,BUFFER_SIZE);    
+        //cerr<<"r ret val: "<<n<<endl;
+        n = write(t_pipe[1],buff,strlen(buff));
+        //cerr<<"w ret val: "<<n<<endl;
         //close(ext_pipe_fd);
     }	
 	dup2(t_pipe[0],0);
+    close(t_pipe[1]);
 
-	close(t_pipe[1]);
-    //cerr<<"CheckDup: calling exec_comm"<<endl;
-return	exec_comm(token, arg); 
+ //   cerr<<"CheckDup: calling exec_comm"<<endl;
+	int ret = 0; 
+	ret = exec_comm(token, arg); 
+    return ret;
 }
 
 int num_of_pipe(char* line){  			//same as num of instruction
@@ -819,21 +916,63 @@ void takeout_pipe_n(char* command, int* arr){
 	}
 }
 
-int validate_command(char* token){
+int validate_command(char** arg,int sockfd){
+	string valid_command[7]={"who","yell","tell","name","noop","printenv","setenv"};
+	for(int it=0;it<7;it++){			
+		if(strcmp(arg[0],valid_command[it].c_str())==0){
+			return 0;
+		}
+	}
+
+    cerr<<"forking()"<<endl;
+    int ppid = fork();
+    if(ppid==0){
+        int t[2];
+        pipe(t);
+        dup2(t[0],0);
+        close(t[1]);
+        cerr<<"child1"<<endl;
+        int ret=0;
+        ret = exec_comm(arg[0],arg);
+        cerr<<"exec return val:    "<<ret;
+        exit(1);    
+    }
+    else if(ppid<0){
+        return -1;   
+        
+    }
+    else{
+        cerr<<"parent1"<<endl;
+        int status;
+        wait(&status);
+        cerr<<"parent done waiting"<<endl;
+        if(status==256){
+            string err_message = "Unknown command: [" + (string)arg[0] + "].\n";
+            write(sockfd,err_message.c_str(),err_message.length());
+            return -1;   
+        }
+        if(status==1){
+            return -1;   
+        }
+    }
+    cerr<<"finish forking()"<<endl;
+//******************************************
+/*
 	string valid_command[12]={"who","yell","tell","name","noop","ls","cat","printenv","setenv","number","removetag","removetag0"};
 	for(int it=0;it<12;it++){			
 		if(strcmp(token,valid_command[it].c_str())==0){
 			return 1;
 		}
 	}
+*/
 	return 0;
 }
 
 int exec_comm(char* token, char** arg){
     //cerr<<"arg[0]"<<arg[0]<<endl;
-	if(validate_command(arg[0]) == 0){
-		return 0;
-	}	
+	//if(validate_command(arg[0]) == 0){
+	//	return 0;
+	//}	
 	if(strcmp(token,"printenv")==0){
 	   printf("%s \n",getenv(arg[1]));
 
@@ -845,7 +984,11 @@ int exec_comm(char* token, char** arg){
 	}
     else{	
     //    cerr<<"execvp arg[0]"<<arg[0]<<endl;
-		execvp(arg[0],arg);
+        int n = execvp(arg[0],arg);
+   //     cerr<<"execvp n: "<<n<<endl;
+		if(n == -1){
+            perror("exec_comm: ");    
+        };
 	}
 
 return 0;
