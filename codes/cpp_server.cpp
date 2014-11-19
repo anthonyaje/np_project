@@ -645,9 +645,9 @@ void process_command(char* command,int sockfd){
 			break;
 		}
 
-//		if(validate_command(arg,sockfd)==-1){
-//			break;
-//		}
+		if(validate_command(arg,sockfd)==-1){
+			break;
+		}
 
         cerr<<"before process chat command"<<endl;
         if(process_chat_command(argc,arg,sockfd)==0){
@@ -712,7 +712,7 @@ void process_command(char* command,int sockfd){
 			    dup2(temp_pipe_fd[1],1);		//direct the stdout to pipe
 			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
 			    close(temp_pipe_fd[1]);
-                cerr<<"check_dup_exec start"<<endl;
+                //cerr<<"check_dup_exec start"<<endl;
 			    if(check_dup_exec_vec(pipelist_i,token,arg)<0){
                     cerr<<"errorrr"<<endl;    
                 }
