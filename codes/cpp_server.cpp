@@ -541,7 +541,7 @@ void process_command(char* command,int sockfd){
                         if(pipe_alr_exist(source_id,dest_id) != -1){
                             toClientPipe=false;   
                             dontDup = true;       
-                            string str = " *** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n% ";
+                            string str = "*** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n% ";
                             write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
                             return;
                             //break;
@@ -554,8 +554,7 @@ void process_command(char* command,int sockfd){
                             cp.from = source_id;
                             cp.to = dest_id;
                             pipe(cp.pipefd);
-                            cli_pipe_list.push_back(cp)
-                            ;
+                            cli_pipe_list.push_back(cp);
                             cli_fd0 = cp.pipefd[0];
                             cli_fd1 = cp.pipefd[1];
                             cerr<<source_id<<"  SEND PIPE TO: "<<dest_id<<"\t\t\t\t Clifd0:    "<<cli_fd0<<endl;
@@ -991,6 +990,6 @@ int exec_comm(char* token, char** arg){
         };
 	}
 
-return 0;
+return -1;
 }	
 
