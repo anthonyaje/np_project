@@ -84,7 +84,7 @@ int broadcast_mess(string mess,int notme=0);
 int exit_sop();
 void fifo_init();
 int fifo_write(string mes, int from, int to);
-int fifo_read(string* buff, int from, int to);
+int fifo_read(char* buff, int from, int to);
 void fifo_close(int from, int to);
 int check_to_clientpipe_redir(char* temp);
 
@@ -136,7 +136,7 @@ int main (int argc, char* argv[]){
         u_index = request_index();
         my_shm_attach(shmid);
         all_user->id_arr[u_index] = u_index+1;
-        strcpy(all_user->name_arr[u_index],"no name");
+        strcpy(all_user->name_arr[u_index],"(no name)");
         strcpy(all_user->ip_arr[u_index], inet_ntoa(cli_addr.sin_addr));
         strcpy(all_user->port_arr[u_index], to_string(ntohs(cli_addr.sin_port)).c_str());
         all_user->fd_arr[u_index] = newsocketfd;
@@ -153,7 +153,7 @@ int main (int argc, char* argv[]){
 		    send_welcome_note(newsocketfd);	
             //Tell other about me
             my_shm_attach(shmid);
-            string mydetail = "*** User '("+(string)all_user->name_arr[u_index]+")' entered from "+(string)all_user->ip_arr[u_index]+"/"+(string)all_user->port_arr[u_index]+". ***\n";
+            string mydetail = "*** User '"+(string)all_user->name_arr[u_index]+"' entered from "+(string)all_user->ip_arr[u_index]+"/"+(string)all_user->port_arr[u_index]+". ***\n";
             broadcast_mess(mydetail,1);
             my_shm_deattach(shmid);
             /*n = write(newsocketfd,"% ",3);
@@ -308,7 +308,7 @@ int fifo_write(string mes,int from , int to){
 return 0;
 }
 
-int fifo_read(string* buff, int from, int to){
+int fifo_read(char* buff, int from, int to){
     //char buffer[BUFFER_SIZE];
     if(read(fifofd[from][to],buff,BUFFER_SIZE) < 0){
         perror("write");
@@ -366,6 +366,18 @@ void ctrlc_handler(int n){
     }  
     my_shm_deattach(shmid);    
     if(ext){
+        my_shm_attach(shmid);  
+        cout<<"closing fifo loop, userid: "<<u_index+1<<endl;
+        for(int i=1;i<MAX_CLIENTS+1; i++){
+            for(int j=1;j<MAX_CLIENTS+1; j++){
+                all_user->fifo_checklist[i][j]=-1;
+                fifo_close(i,j);
+                if(i!=j)
+                    fifo_close(j,i);
+            }
+        }
+        my_shm_deattach(shmid);  
+         
         my_shm_delete(shmid);    
         my_shm_delete(shmid2);   
         close(socketfd); 
@@ -373,12 +385,40 @@ void ctrlc_handler(int n){
     }
 }
 
+int exit_sop(){
+    my_shm_attach(shmid);
+    string mydetail ="*** User '"+(string)all_user->name_arr[u_index]+"' left. ***\n"; 
+    cout<<"my detail: "<<mydetail<<endl;
+    broadcast_mess(mydetail);
+
+    int i= u_index;
+    all_user->pid_arr[i] = -1;    
+    all_user->id_arr[i] = -1;    
+    strcpy(all_user->name_arr[i],"");    
+    strcpy(all_user->ip_arr[i],"");    
+    strcpy(all_user->port_arr[i],"");    
+    all_user->fd_arr[i] = -1;  
+    
+    char bufff[1024];
+    cout<<"resetting fifo , userid: "<<u_index+1<<endl;
+    for(int j=1;j<MAX_CLIENTS+1; j++){
+       all_user->fifo_checklist[u_index+1][j]=-1;
+       all_user->fifo_checklist[j][u_index+1]=-1;
+       fifo_read(bufff,u_index+1,j);
+       fifo_read(bufff,j,u_index+1);
+    } 
+     
+    my_shm_deattach(shmid);
+    return 0;
+}
+
+
 int send_welcome_note(int newsocketfd){
     char welcomenote [] = "****************************************\n** Welcome to the information server. **\n****************************************\n";
 
     printf("client connection accepted!\n");
     my_shm_attach(shmid);
-    string mydetail = "*** User '("+(string)all_user->name_arr[u_index]+")' entered from "+(string)all_user->ip_arr[u_index]+"/"+(string)all_user->port_arr[u_index]+". ***\n";
+    string mydetail = "*** User '"+(string)all_user->name_arr[u_index]+"' entered from "+(string)all_user->ip_arr[u_index]+"/"+(string)all_user->port_arr[u_index]+". ***\n";
     my_shm_deattach(shmid);
     mydetail = (string) welcomenote + mydetail + "% ";
     int n = write(newsocketfd,mydetail.c_str(),mydetail.length());
@@ -417,28 +457,6 @@ int check_name_avail(string str ){
 return -1;    
 }
 
-int exit_sop(){
-    my_shm_attach(shmid);
-    string mydetail ="*** User '("+(string)all_user->name_arr[u_index]+")' left. ***\n"; 
-    cout<<"my detail: "<<mydetail<<endl;
-    broadcast_mess(mydetail);
-
-    int i= u_index;
-    all_user->pid_arr[i] = -1;    
-    all_user->id_arr[i] = -1;    
-    strcpy(all_user->name_arr[i],"");    
-    strcpy(all_user->ip_arr[i],"");    
-    strcpy(all_user->port_arr[i],"");    
-    all_user->fd_arr[i] = -1;  
-    for(int j=1;j<MAX_CLIENTS+1; j++){
-       all_user->fifo_checklist[u_index+1][j]=-1;
-       fifo_close(u_index+1,j);
-       fifo_close(j,u_index+1);
-    } 
-     
-    my_shm_deattach(shmid);
-    return 0;
-}
 /*
  ****************************************
  ***  process_chat_command()
@@ -484,7 +502,7 @@ int process_chat_command(int argc, char** arg,int fd){
                 perror("Error writing to socket");
         }
         else{
-            msg = "*** "+(string)all_user->name_arr[atoi(arg[1])-1]+" told you ***: ";
+            msg = "*** "+(string)all_user->name_arr[u_index]+" told you ***: ";
             for(int i=2;i<argc;i++){
                 msg += " "+(string)arg[i];
             }
@@ -500,7 +518,7 @@ int process_chat_command(int argc, char** arg,int fd){
     else if(strcmp(arg[0],"name")==0){
         //check validity
         if(check_name_avail((string) arg[1])==0){
-            string msg = "*** User '("+(string)arg[1]+")' already exists. ***\n";
+            string msg = "*** User "+(string)arg[1]+" already exists. ***\n";
             if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
                 perror("Error writing to socket");
         }
@@ -567,7 +585,6 @@ void process_command(char* command,int sockfd){
     cmd = strtok(command_cpy,"|\r\n\0");
 	for(int i=0; i<n_inst; i++){
 		char* arg[100]={};
-		token = strtok(inst_arr[i]," \n");
 		int argc=0;
 		bool toFile=false;
         toClientPipe=false;
@@ -575,8 +592,10 @@ void process_command(char* command,int sockfd){
         dupStdin=false;
 		char* rfilename=NULL;
 		char* temp;
-		
+		int n;
+
 		cout<<"NEW COMMAND"<<endl;
+		token = strtok(inst_arr[i]," \n");
 		arg[argc++] = token;
 		while((temp = strtok(NULL," \n")) != NULL){
 			puts(temp);
@@ -588,9 +607,14 @@ void process_command(char* command,int sockfd){
 			    break;
  			}
 			else{
-                if(check_to_clientpipe_redir(temp)==0){
+                if((n=check_to_clientpipe_redir(temp))<0){
+                    //break;    
+                    return;
+                }
+                else if(n==1){
                     break;    
-                }else{
+                }
+                else{
                     arg[argc] = temp;
                     printf("arg[%d]: %s\n",arg[argc]); 
                     argc++;
@@ -631,12 +655,14 @@ void process_command(char* command,int sockfd){
 
         int* temp_pipe_fd = pipeVec.back().first;
 		cout<<pipeVec.back().first[0]<<endl;
+        cout<<"toClientPipe: "<<toClientPipe<<" dupStdin: "<<dupStdin<<" dontDup: "<<dontDup<<endl;	
 		cout<<"before fork()"<<endl;
 
 		pid = fork();
 		if(pid == 0){
 			close(pipeVec.back().first[0]);
             if(toFile == true){
+                cout<<"toFile dupping"<<endl;
                 dup2(fd,1);					//direct the stdout to file
                 dup2(pipeVec.back().first[1],2);		//direct the stderr 
                 close(pipeVec.back().first[1]);
@@ -670,6 +696,7 @@ void process_command(char* command,int sockfd){
                 check_dup_exec_vec(token, arg);
             }
             else{
+                cerr<<"normal to pipe duping"<<endl;
                 cerr<<"CHILD closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
                 dup2(temp_pipe_fd[1],1);        //direct the stdout to pipe
                 dup2(temp_pipe_fd[1],2);        //direct the stderr 
@@ -683,7 +710,8 @@ void process_command(char* command,int sockfd){
 		}else if(pid<0){ 
 			perror("parse command: fork failed\n");
 		}
-		else{	
+		else{
+            cout<<"toClientPipe: "<<toClientPipe<<" dupStdin: "<<dupStdin<<" dontDup: "<<dontDup<<endl;	
 			close(pipeVec.back().first[1]);
 		 	close(fd);
 			wait(&status);
@@ -697,17 +725,14 @@ void process_command(char* command,int sockfd){
                 pipeVec.pop_back();
                 break;    
             }
-            if(toClientPipe=true){
+            if(toClientPipe==true){
                 //pipe has been closed by child    
             }
             if(dupStdin==true){
-                close(r_cli_fd);
-                //my_shm_attach(shmid);
-                //all_user->fifo_checklist[][]=-1;
-                //my_shm_deattach(shmid);
-                //inside parser
+                //close(r_cli_fd);
             }
 
+            cout<<"toClientPipe: "<<toClientPipe<<" dupStdin: "<<dupStdin<<" dontDup: "<<dontDup<<endl;	
             cout<<"writing to client"<<endl;
 			if(pipeVec.back().second == -2){
 				char buffer[BUFFER_SIZE];
@@ -715,7 +740,9 @@ void process_command(char* command,int sockfd){
 				while(read(pipeVec.back().first[0],buffer, sizeof(buffer)) != 0){
                     string msg=(string)buffer + "\n";
                     if(toClientPipe){
+                        cout<<"write to fifo:"<<endl;
                         fifo_write(msg,u_index+1, dest_id);
+                        
                         break;    
                     }
 					write(sockfd,msg.c_str(),msg.length());
@@ -749,10 +776,19 @@ int check_to_clientpipe_redir(char* temp){
             string str = "*** Error: user #"+to_string(dest_id)+" does not exist yet. ***\n% ";
             write(newsocketfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
             dontDup=true;
+            return -1;
+        }
+        else if(all_user->fifo_checklist[from_id][dest_id] == 1){
+            //destid not found
+            string str = "*** Error: the pipe #"+to_string(from_id)+"->#"+to_string(dest_id)+" already exists. ***\n% ";
+            write(newsocketfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
+            dontDup=true;
+            return -1;
         }
         else{
             toClientPipe=true;
             all_user->fifo_checklist[from_id][dest_id] = 1;       
+            cout<<"fifo_checklist[][]: "<<all_user->fifo_checklist[from_id][dest_id]<<endl; 
             string msg = "*** "+(string)all_user->name_arr[u_index]+" (#"+to_string(from_id)+") just piped '"+(string)cmd+"' to "+(string)all_user->name_arr[dest_id-1]+" (#"+to_string(dest_id)+") ***\n";
             broadcast_mess(msg);
             //dup the stdout directly to fifo
@@ -762,17 +798,19 @@ int check_to_clientpipe_redir(char* temp){
                 perror("open fifo"); return -1;
             }
         }
+        return 1;
         my_shm_deattach(shmid);
-        return 0;
     }
     else if(*temp == '<'){
         my_shm_attach(shmid);
         int sender_id = atoi(temp+1);
         int recv_id = u_index+1;
         cerr<<"getting a pipe from other client"<<endl;
+        cout<<"fifo_checklist[][]: "<<all_user->fifo_checklist[sender_id][recv_id]<<endl; 
         if(all_user->fifo_checklist[sender_id][recv_id] == -1){
             string msg = "*** Error: the pipe #"+to_string(sender_id)+"->#"+to_string(recv_id)+" does not exist yet. ***\n% ";
             write(newsocketfd, msg.c_str(), msg.length());
+            return -1;
         }
         else{
            cout<<"read from fifo and dup to stdin"<<endl;
@@ -789,12 +827,13 @@ int check_to_clientpipe_redir(char* temp){
             all_user->fifo_checklist[sender_id][recv_id]=-1;
 
         }
-
+        return 1;
         my_shm_deattach(shmid);
-        return 0;
     }
-    return -1;    
+    return 0;    
 }
+
+
 int parse_line(char** arr, char* command){
     char *token, *s;
     int i=0;
@@ -839,9 +878,10 @@ int check_dup_exec_vec(char* token, char** arg,int ext_pipe_fd){
     }	
     if(ext_pipe_fd != -1){
         memset(buff,0,BUFFER_SIZE);
-        // cerr<<"read from cli pipe"<<ext_pipe_fd<<endl;
+        //cerr<<"read from cli pipe"<<ext_pipe_fd<<endl;
         int n = read(ext_pipe_fd,buff,BUFFER_SIZE);
         //cerr<<"r ret val: "<<n<<endl;
+        //cerr<<"buff: "<<buff<<endl;
         n = write(t_pipe[1],buff,strlen(buff));
         //cerr<<"w ret val: "<<n<<endl;
         //close(ext_pipe_fd);
