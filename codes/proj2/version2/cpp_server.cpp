@@ -53,7 +53,9 @@ string fifo_path = "/tmp/aje_fifo_";
 bool dontDup=false, toClientPipe=false, dupStdin=false;
 int dest_id;
 char* cmd;
-int w_cli_fd, r_cli_fd;
+int w_cli_fd, r_cli_fd, file_fd;
+string to_cli_msg_r;
+string to_cli_msg_w;
 
 //PROTOTYPE
 void err_dump(char* str){	perror(str); }
@@ -72,7 +74,7 @@ int init_shm_user_info();
 int send_welcome_note(int newsocketfd);
 int request_index();
 
-int process_chat_command(int argc,char** arg,int sockfd);
+int process_chat_command(char* inst,int argc,char** arg,int sockfd);
 int my_shm_attach(int id);
 int my_shm_deattach(int id);
 int my_shm_delete(int id);
@@ -325,6 +327,8 @@ void fifo_close(int from, int to){
 }
 
 int broadcast_mess(string mess, int notme){
+    //my_shm_attach(shmid);
+    cout<<"broadcasting"<<endl;
     int n;
     for(int i=0; i<MAX_CLIENTS; i++){
         if(all_user->pid_arr[i]==-1)
@@ -339,7 +343,7 @@ int broadcast_mess(string mess, int notme){
         cout<<"br pid: "<<all_user->pid_arr[i]<<endl;
         kill(all_user->pid_arr[i],SIGUSR1);
     }
-
+   // my_shm_deattach(shmid);
 return 0;    
 }
 
@@ -463,9 +467,17 @@ return -1;
  ***
  *****************************************
  */
-int process_chat_command(int argc, char** arg,int fd){
+int process_chat_command(char* inst, int argc, char** arg,int fd){
     //Attach SHM
     my_shm_attach(shmid);
+    char* comm;
+    char* rest;
+    comm = strtok(inst," \r\n");
+    rest = strtok(NULL,"\r\n");
+    cerr<<"|||||||||||||||||||||||||||||||||||||||||||||||||||"<<endl;
+    cerr<<"comm: "<<comm<<endl;
+    cerr<<"rest: "<<rest<<endl;
+
     //my_shm_attach(shmid2);
     //int fd_idx = user_fd_to_index(fd);
     if(strcmp(arg[0],"who")==0){
@@ -488,9 +500,11 @@ int process_chat_command(int argc, char** arg,int fd){
     }
     else if(strcmp(arg[0],"yell")==0){
         string str = "*** "+(string) all_user->name_arr[u_index]+" yelled ***:";
-        for(int i=1;i<argc;i++){
+        /*for(int i=1;i<argc;i++){
             str += " "+(string)arg[i];
         }
+        */
+        str+=rest;
         str+="\n";
         broadcast_mess(str);
     }
@@ -502,10 +516,16 @@ int process_chat_command(int argc, char** arg,int fd){
                 perror("Error writing to socket");
         }
         else{
+            cerr<<"before strtok"<<endl;
+            comm = strtok(rest," \r\n");
+            cerr<<"after strtok:    "<<comm<<endl;
+            rest = strtok(NULL,"\r\n");
             msg = "*** "+(string)all_user->name_arr[u_index]+" told you ***: ";
-            for(int i=2;i<argc;i++){
+            /*for(int i=2;i<argc;i++){
                 msg += " "+(string)arg[i];
             }
+            */
+            msg+=rest;
             msg += "\n";
             my_shm_attach(shmid2);
             strcpy(mess_list_shm->mess[atoi(arg[1])-1],msg.c_str());
@@ -559,7 +579,7 @@ int print_ip(struct sockaddr_in* cli_addr){
  *****************************************
  */
 void process_command(char* command,int sockfd){
-	int status,n_pipe,pcount,fd,n_inst;
+	int status,n_pipe,pcount,n_inst;
 	pid_t pid;
 	char *token;
 	int* n_arr;
@@ -603,7 +623,6 @@ void process_command(char* command,int sockfd){
 			    cerr<<"to file redirection found"<<endl;
 			    toFile = true; 
 			    rfilename = strtok(NULL," \n");
-			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
 			    break;
  			}
 			else{
@@ -616,7 +635,7 @@ void process_command(char* command,int sockfd){
                 }
                 else{
                     arg[argc] = temp;
-                    printf("arg[%d]: %s\n",arg[argc]); 
+                    printf("arg[%d]: %s\n",argc,arg[argc]); 
                     argc++;
                 }
             }
@@ -642,8 +661,8 @@ void process_command(char* command,int sockfd){
         if(validate_command(arg,sockfd) == -1){
             break;    
         }
-        cerr<<"before process chat command"<<endl;
-        if(process_chat_command(argc,arg,sockfd)==0){
+        cerr<<"!before process chat command!"<<endl;
+        if(process_chat_command(command_cpy,argc,arg,sockfd)==0){
             //write(sockfd,"% ",3);    
             break;
         }
@@ -662,8 +681,9 @@ void process_command(char* command,int sockfd){
 		if(pid == 0){
 			close(pipeVec.back().first[0]);
             if(toFile == true){
+			    file_fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
                 cout<<"toFile dupping"<<endl;
-                dup2(fd,1);					//direct the stdout to file
+                dup2(file_fd,1);					//direct the stdout to file
                 dup2(pipeVec.back().first[1],2);		//direct the stderr 
                 close(pipeVec.back().first[1]);
                 check_dup_exec_vec(token,arg);
@@ -711,9 +731,9 @@ void process_command(char* command,int sockfd){
 			perror("parse command: fork failed\n");
 		}
 		else{
+            cout<<"parent()"<<endl;
             cout<<"toClientPipe: "<<toClientPipe<<" dupStdin: "<<dupStdin<<" dontDup: "<<dontDup<<endl;	
 			close(pipeVec.back().first[1]);
-		 	close(fd);
 			wait(&status);
 			if(status == 1){
 				perror("parent: child process terminated with an error\n");
@@ -725,14 +745,10 @@ void process_command(char* command,int sockfd){
                 pipeVec.pop_back();
                 break;    
             }
-            if(toClientPipe==true){
-                //pipe has been closed by child    
-            }
-            if(dupStdin==true){
-                //close(r_cli_fd);
+            if(toFile){
+                close(file_fd);
             }
 
-            cout<<"toClientPipe: "<<toClientPipe<<" dupStdin: "<<dupStdin<<" dontDup: "<<dontDup<<endl;	
             cout<<"writing to client"<<endl;
 			if(pipeVec.back().second == -2){
 				char buffer[BUFFER_SIZE];
@@ -751,6 +767,20 @@ void process_command(char* command,int sockfd){
 				pipeVec.pop_back();
 			}
             cout<<"after writing to client"<<endl;
+            if(toClientPipe==true){
+                my_shm_attach(shmid);
+                cout<<"if toCli"<<endl;
+                broadcast_mess(to_cli_msg_w);
+                my_shm_deattach(shmid);
+                //pipe has been closed by child    
+            }
+            if(dupStdin==true){
+                my_shm_attach(shmid);
+                cout<<"if dupStdin"<<endl;
+                broadcast_mess(to_cli_msg_r);
+                my_shm_deattach(shmid);
+                //close(r_cli_fd);
+            }
 				
 			remove_zero_vec();					//remove vec element whose counter = 0
 			decrement_vec();					//-- each current element in pipe
@@ -789,8 +819,7 @@ int check_to_clientpipe_redir(char* temp){
             toClientPipe=true;
             all_user->fifo_checklist[from_id][dest_id] = 1;       
             cout<<"fifo_checklist[][]: "<<all_user->fifo_checklist[from_id][dest_id]<<endl; 
-            string msg = "*** "+(string)all_user->name_arr[u_index]+" (#"+to_string(from_id)+") just piped '"+(string)cmd+"' to "+(string)all_user->name_arr[dest_id-1]+" (#"+to_string(dest_id)+") ***\n";
-            broadcast_mess(msg);
+            to_cli_msg_w = "*** "+(string)all_user->name_arr[u_index]+" (#"+to_string(from_id)+") just piped '"+(string)cmd+"' to "+(string)all_user->name_arr[dest_id-1]+" (#"+to_string(dest_id)+") ***\n";
             //dup the stdout directly to fifo
             string fifoname = fifo_path + to_string(from_id) +"_"+to_string(dest_id);
             w_cli_fd = open(fifoname.c_str(), O_NONBLOCK | O_WRONLY);
@@ -816,8 +845,7 @@ int check_to_clientpipe_redir(char* temp){
            cout<<"read from fifo and dup to stdin"<<endl;
            //char buff[BUFFER_SIZE];
            dupStdin=true;
-           string str = "*** "+(string)all_user->name_arr[u_index]+" (#"+to_string(all_user->id_arr[u_index])+") just received from "+(string)all_user->name_arr[sender_id-1]+" (#"+to_string(sender_id)+") by '"+(string)cmd+"' ***\n";
-           broadcast_mess(str);
+           to_cli_msg_r = "*** "+(string)all_user->name_arr[u_index]+" (#"+to_string(all_user->id_arr[u_index])+") just received from "+(string)all_user->name_arr[sender_id-1]+" (#"+to_string(sender_id)+") by '"+(string)cmd+"' ***\n";
            //Dup the stdin directly from fifo later 
             //string fifoname = fifopath + to_string(sender_id) +"_"+to_string(recv_id);
             r_cli_fd = fifofd[sender_id][recv_id];
