@@ -41,8 +41,6 @@ class client_pipe{
 vector< pair<vector<pair<int*,int> >, int> >pipeVec_arr;
 vector<user> user_list;
 vector<client_pipe> cli_pipe_list; 
-string cli_msg_w, cli_msg_r;
-
 //PROTOTYPE
 void err_dump(char* str){
 	perror(str);
@@ -147,7 +145,7 @@ int main (int argc, char* argv[]){
             
             user u;        
             u.id = request_id(id_list);
-            u.name = "(no name)";
+            u.name = "no name";
             u.ip = (string)(inet_ntoa(cli_addr.sin_addr));
             u.port = to_string(ntohs(cli_addr.sin_port));
             u.fd = connfd;
@@ -165,7 +163,7 @@ int main (int argc, char* argv[]){
 			//if(n<0){ perror("Error writing to socket"); exit(1); }
 
             //Tell other about me
-            string mydetail = "*** User '"+u.name+"' entered from "+u.ip+"/"+u.port+". ***\n";
+            string mydetail = "*** User '("+u.name+")' entered from "+u.ip+"/"+u.port+". ***\n";
             broadcast_mess(mydetail,user_list,connfd,0,1);
 			FD_SET(connfd,&read_set);
             /*for(int f=3; f<nfds; ++f){
@@ -173,7 +171,7 @@ int main (int argc, char* argv[]){
                     write(f,mydetail.c_str(),strlen(mydetail.c_str()));
                 }
             }*/
-            //cout<<"sleeping....."<<endl;
+            cout<<"sleeping....."<<endl;
             //usleep(300000);
             cerr<<"----------------- sending %-------------"<<endl;
             n = write(connfd,"% ",sizeof(char)*strlen(("i% ")));
@@ -200,6 +198,13 @@ int main (int argc, char* argv[]){
                     remove_user(user_list,it_fd, id_list);
                     cout<<"after remove user"<<endl;
                     user_count--;
+
+                    /*cerr<<"----------------- sending %-------------"<<endl;
+                    usleep(1000000);
+                    n = write(it_fd,"% ",sizeof(char)*strlen("% "));
+                    if(n<0){ perror("Error writing to socket"); exit(1);}
+                    cerr<<"----------------- done sending %-------------"<<endl;
+                    */
                     
                     FD_CLR(it_fd,&read_set);
                     cerr<<"exit!!"<<endl;
@@ -225,6 +230,13 @@ int main (int argc, char* argv[]){
                 close(sv_err);
                 close(savstdout);
 
+              /*  cerr<<"----------------- sending %-------------"<<endl;
+                usleep(1000000);
+                n = write(it_fd,"% ",sizeof(char)*strlen("p% "));
+                if(n<0){ perror("Error writing to socket"); exit(1);}
+                cerr<<"----------------- done sending %-------------"<<endl;
+                */
+
                 bzero(buffer, BUFFER_SIZE);
             }
         }
@@ -240,10 +252,7 @@ int main (int argc, char* argv[]){
  ***
  *****************************************
  */
-int process_chat_command(char* inst, int argc, char** arg,int fd){
-    char* comm = strtok(inst," \r\n");
-    char* rest = strtok(NULL,"\r\n");
-
+int process_chat_command(int argc, char** arg,int fd){
     if(strcmp(arg[0],"who")==0){
         string str = "<ID>\t<nickname>\t<IP/port>\t<indicate me>\n";
         if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
@@ -260,10 +269,9 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
     }
     else if(strcmp(arg[0],"yell")==0){
         string msg = "*** "+user_list[user_fd_to_index(fd)].name+" yelled ***:";
-        //for(int i=1;i<argc;i++){
-        //    msg += " "+(string)arg[i];    
-        //}
-        msg+=rest;
+        for(int i=1;i<argc;i++){
+            msg += " "+(string)arg[i];    
+        }
         msg+="\n";
         broadcast_mess(msg,user_list,fd,0);
 
@@ -278,13 +286,10 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
                 perror("Error writing to socket"); 
         }
         else{
-            comm = strtok(rest," \r\n");
-            rest = strtok(NULL,"\r\n");
             msg = "*** "+my_name+" told you ***: ";
-            //for(int i=2;i<argc;i++){
-            //    msg += " "+(string)arg[i];    
-            //}
-            msg += rest;
+            for(int i=2;i<argc;i++){
+                msg += " "+(string)arg[i];    
+            }
             msg += "\n";  
             if(write(to_fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
                 perror("Error writing to socket"); 
@@ -295,7 +300,7 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
     else if(strcmp(arg[0],"name")==0){
         //check validity
         if(check_name_avail((string) arg[1])==0){
-            string msg = "*** User "+(string)arg[1]+" already exists. ***\n";
+            string msg = "*** User '("+(string)arg[1]+")' already exists. ***\n";
             if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
                 perror("Error writing to socket"); 
         }
@@ -308,7 +313,7 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
         }
 
     }else{
-        return -1;    
+        return 1;    
     }
 
 return 0;    
@@ -397,7 +402,7 @@ int remove_user(vector<user>& user_list, int fd, int* id_list){
         if(user_list[i].fd == fd){
             int u_id = user_list[i].id;
             //BROADCAST
-            string mess = "*** User '"+user_list[i].name+"' left. ***\n";
+            string mess = "*** User '("+user_list[i].name+")' left. ***\n";
             write(fd,mess.c_str(),mess.length());
             //usleep(300000);
             //write(fd,"% ",3);
@@ -502,12 +507,8 @@ void process_command(char* command,int sockfd){
 		char* rfilename=NULL;
 		char* temp;
 	    int pipe_index;
-        string err_str,err_str2;
-        bool flag1, flag2;
         	
-		flag1 = flag2 = false;
-
-        cout<<"NEW COMMAND"<<endl;
+		cout<<"NEW COMMAND"<<endl;
 		arg[argc++] = token;
 		while((temp = strtok(NULL," \n")) != NULL){
 			puts(temp);
@@ -515,6 +516,7 @@ void process_command(char* command,int sockfd){
 			    cerr<<"to file redirection found"<<endl;
 			    toFile = true; 
 			    rfilename = strtok(NULL," \n");
+			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
 			    break;
  			} 
 			else{
@@ -528,38 +530,36 @@ void process_command(char* command,int sockfd){
                     
                     cout<<"Dest id: "<<dest_id<<endl;
                     if(dest_fd == -1){
-                        err_str = "*** Error: user #"+to_string(dest_id)+" does not exist yet. ***\n% ";
-                        flag1 = true;
-                        //write(sockfd, err_str.c_str(),sizeof(char)*strlen(err_str.c_str()));
+                        string str = "*** Error: user #"+to_string(dest_id)+" does not exist yet. ***\n% ";
+                        write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
                         dontDup = true;       
-                        //return;
-                        break;
+                        return;
+                        //break;
                     }
                     else{
                         //add new pipe to cli_pipe_list if it hasnt existed yet
                         if(pipe_alr_exist(source_id,dest_id) != -1){
                             toClientPipe=false;   
                             dontDup = true;       
-                            err_str = "*** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n% ";
-                            flag1=true;
-                            //write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
-                            //return;
-                            break;  //execute parse chat
+                            string str = " *** Error: the pipe #"+to_string(source_id)+"->#"+to_string(dest_id)+" already exists. ***\n% ";
+                            write(sockfd, str.c_str(),sizeof(char)*strlen(str.c_str()));
+                            return;
+                            //break;
                         }
                         else{
                             toClientPipe=true;
-                            cli_msg_w = "*** "+user_list[u_index].name+" (#"+to_string(user_list[u_index].id)+") just piped '"+(string)cmd+"' to "+user_list[dest_index].name+" (#"+to_string(user_list[dest_index].id)+") ***\n";
-                            //broadcast_mess(cli_msg_w,user_list,sockfd,0);
+                            string msg = "*** "+user_list[u_index].name+" (#"+to_string(user_list[u_index].id)+") just piped '"+(string)cmd+"' to "+user_list[dest_index].name+" (#"+to_string(user_list[dest_index].id)+") ***\n";
+                            broadcast_mess(msg,user_list,sockfd,0);
                             client_pipe cp;
                             cp.from = source_id;
                             cp.to = dest_id;
                             pipe(cp.pipefd);
-                            cli_pipe_list.push_back(cp);
+                            cli_pipe_list.push_back(cp)
+                            ;
                             cli_fd0 = cp.pipefd[0];
                             cli_fd1 = cp.pipefd[1];
                             cerr<<source_id<<"  SEND PIPE TO: "<<dest_id<<"\t\t\t\t Clifd0:    "<<cli_fd0<<endl;
                             //close(cli_fd0);
-                            break;
                         }
                     }
                 }
@@ -573,12 +573,16 @@ void process_command(char* command,int sockfd){
                     //int dest_fd = user_id_to_fd(dest_id);
                     //int dest_index = user_fd_to_index(dest_fd);  
 
-                   if((sender_fd==-1) || (pipe_alr_exist(sender_id,my_id)==-1)){
-                       err_str2 = "*** Error: the pipe #"+to_string(sender_id)+"->#"+to_string(my_id)+" does not exist yet. ***\n% "; 
-                       flag2=true;
-                       //write(sockfd, msg.c_str(),sizeof(char)*strlen(msg.c_str()));
-                       //return;
-                       break;
+                   if(sender_fd == -1){
+                        //ADDITIONAL
+                        cerr<<"user id not found"<<endl;         
+                   //    return;
+                   }
+                   if(pipe_alr_exist(sender_id,my_id)==-1){
+                       string msg = "*** Error: the pipe #"+to_string(sender_id)+"->#"+to_string(my_id)+" does not exist yet. ***\n% "; 
+                       write(sockfd, msg.c_str(),sizeof(char)*strlen(msg.c_str()));
+                       return;
+                       //break;
                    }
                    else{
                         //read from pipe and dup to stdin
@@ -590,11 +594,10 @@ void process_command(char* command,int sockfd){
                         r_cli_fd1 = tempfd[1];
                         close(r_cli_fd1);
                         dupStdin=true;
-                        cli_msg_r = "*** "+user_list[my_index].name+" (#"+to_string(user_list[my_index].id)+") just received from "+user_list[user_fd_to_index(sender_fd)].name+" (#"+to_string(user_list[user_fd_to_index(sender_fd)].id)+") by '"+(string)cmd+"' ***\n";
-                        //broadcast_mess(cli_msg_r,user_list,sockfd,0);
+                        string str = "*** "+user_list[my_index].name+" (#"+to_string(user_list[my_index].id)+") just received from "+user_list[user_fd_to_index(sender_fd)].name+" (#"+to_string(user_list[user_fd_to_index(sender_fd)].id)+") by '"+(string)cmd+"' ***\n";
+                        broadcast_mess(str,user_list,sockfd,0);
                         cerr<<my_id<<"  RECV PIPE FROM: "<<sender_id<<"\t\t\t\t Clifd0:    "<<r_cli_fd0<<endl;
                         cerr<<"pipeindex <: "<<pipe_index<<endl;
-                        break;
                    }
 
                 }
@@ -647,16 +650,9 @@ void process_command(char* command,int sockfd){
 		}
 
         cerr<<"before process chat command"<<endl;
-        if(process_chat_command(command_cpy,argc,arg,sockfd)==0){
+        if(process_chat_command(argc,arg,sockfd)==0){
             //write(sockfd,"% ",3);    
             break;
-        }
-        if(flag1 || flag2){
-            write(sockfd, err_str.c_str(),sizeof(char)*strlen(err_str.c_str()));
-            if(flag2){
-                write(sockfd, err_str2.c_str(),sizeof(char)*strlen(err_str2.c_str()));
-            }
-            return ;
         }
 
         int pipelist_i = pipeVecArr_id_to_index(my_id);
@@ -679,7 +675,6 @@ void process_command(char* command,int sockfd){
 			close(temp_pipe_fd[0]);
 
 			if(toFile == true){
-			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,0777);
 			    dup2(fd,1);					//direct the stdout to file
 			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
 			    close(temp_pipe_fd[1]);
@@ -739,6 +734,7 @@ void process_command(char* command,int sockfd){
             cout<<"PARENT closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
 			close(temp_pipe_fd[1]);
 
+            close(fd);
             cerr<<"*** back2 to parent"<<endl;
             if(status == 256){//exec error
                 cerr<<"STATUS: "<<status<<endl;
@@ -746,29 +742,37 @@ void process_command(char* command,int sockfd){
                 print_pipe_vec();
                 break;
             }
-            if(toFile){
-                close(fd);
-            }
             if(toClientPipe==true){
                 //close(cli_fd1);
             }
             if(dupStdin==true){
                 cerr<<"pipe_index: "<<pipe_index<<endl;
+                cerr<<"DUPSTDIN ERASE before: "<<endl;
+                for(int i=0; i<cli_pipe_list.size(); i++){
+                    cerr<<"from "<<(*(cli_pipe_list.begin()+i)).from<<endl; 
+                    cerr<<"to "<<(*(cli_pipe_list.begin()+i)).to<<endl; 
+                    cerr<<"fd "<<(*(cli_pipe_list.begin()+i)).pipefd[0]<<endl<<endl; 
+                    
+                }
                 close(r_cli_fd0);
                 cli_pipe_list.erase(cli_pipe_list.begin() + pipe_index);       
+                cerr<<"DUPSTDIN ERASE after: "<<endl;
+                for(int i=0; i<cli_pipe_list.size(); i++){
+                    cerr<<"from "<<(*(cli_pipe_list.begin()+i)).from<<endl; 
+                    cerr<<"to "<<(*(cli_pipe_list.begin()+i)).to<<endl; 
+                    cerr<<"fd "<<(*(cli_pipe_list.begin()+i)).pipefd[0]<<endl<<endl; 
+                }
+                //close(r_cli_fd1);
             }
             cerr<<"writing to client "<<endl;
 			if(pipeVec_arr[pipelist_i].first.back().second == -2){
 				char buffer[BUFFER_SIZE];
 				memset(buffer,0,BUFFER_SIZE);
-                int i=0;
 				while(read(temp_pipe_fd[0],buffer, sizeof(buffer)) != 0){
                     cerr<<"send buffer: ["<<buffer<<"]"<<endl;
                     printf("buffer(int): %d\n",buffer[0]);
-                    string msg = (string) buffer ;
+                    string msg = (string) buffer + "\n";
 					write(sockfd,msg.c_str(),msg.length());
-                    if(i++ > 50)
-                        break;
 				}
                 //write(sockfd,"% ",3);    
                 cout<<"PARENT WRITING TO CLIENT closing pipe [0]:    "<<temp_pipe_fd[0]<<endl;
@@ -779,14 +783,6 @@ void process_command(char* command,int sockfd){
             else{
             }
             cerr<<"DONE writing to client "<<endl;
-            //write(sockfd,"% ",3);    
-
-            if(toClientPipe==true){
-                broadcast_mess(cli_msg_w,user_list,sockfd,0);
-            }
-            if(dupStdin==true){
-                broadcast_mess(cli_msg_r,user_list,sockfd,0);
-            }
 
             cerr<<"calling remove zero "<<endl;
             remove_zero_vec(pipelist_i);					//remove vec element whose counter = 0
@@ -995,6 +991,6 @@ int exec_comm(char* token, char** arg){
         };
 	}
 
-return -1;
+return 0;
 }	
 
