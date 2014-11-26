@@ -1,0 +1,7 @@
+printenv PATH
+setenv PATH bin
+printenv PATH
+ls
+ls bin
+ls |3 removetag test.html |2 ls |1 cat
+exit

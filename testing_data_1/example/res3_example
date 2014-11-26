@@ -1,0 +1,400 @@
+#### WELCOME NOTE from server  ####
+% printenv PATH
+in check_dup_exec
+vect size1
+pipeVec first[0]:3
+pipeVec second:-2
+returning
+/usr/local/bin:/usr/bin:/bin 
+% setenv PATH bin
+in check_dup_exec
+vect size1
+pipeVec first[0]:5
+pipeVec second:-2
+returning
+setenv successfully setted
+setenv successfully setted
+% printenv PATH
+in check_dup_exec
+vect size1
+pipeVec first[0]:6
+pipeVec second:-2
+returning
+bin 
+% ls
+in check_dup_exec
+vect size1
+pipeVec first[0]:7
+pipeVec second:-2
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+% ls bin
+in check_dup_exec
+vect size1
+pipeVec first[0]:8
+pipeVec second:-2
+returning
+cat
+ls
+noop
+number
+removetag
+removetag0
+server
+% cat test.html > test1.txt
+% % cat test1.txt
+in check_dup_exec
+vect size1
+pipeVec first[0]:10
+pipeVec second:-2
+returning
+<!test.html>
+<TITLE>Test<TITLE>
+<BODY>This is a <b>test</b> program
+for ras.
+</BODY>
+% removetag test.html
+in check_dup_exec
+vect size1
+pipeVec first[0]:11
+pipeVec second:-2
+returning
+
+Test
+This is a test program
+for ras.
+
+% removetag test.html > test2.txt
+% % cat test2.txt
+in check_dup_exec
+vect size1
+pipeVec first[0]:13
+pipeVec second:-2
+returning
+
+Test
+This is a test program
+for ras.
+
+% removetag0 test.html
+in check_dup_exec
+vect size1
+pipeVec first[0]:14
+pipeVec second:-2
+returning
+Error: illegal tag "!test.html"
+
+Test
+This is a test program
+for ras.
+
+% removetag0 test.html > test2.txt
+% % cat test2.txt
+in check_dup_exec
+vect size1
+pipeVec first[0]:16
+pipeVec second:-2
+returning
+
+Test
+This is a test program
+for ras.
+
+% removetag test.html | number
+in check_dup_exec
+vect size2
+pipeVec first[0]:17
+pipeVec second:0
+if pipeVec first[0]:17
+if buff: 
+in check_dup_exec
+vect size1
+pipeVec first[0]:17
+pipeVec second:1
+returning
+
+Test
+This is a test program
+for ras.
+
+pipeVec first[0]:18
+pipeVec second:-2
+returning
+   1 in check_dup_exec
+   2 vect size1
+   3 pipeVec first[0]:17
+   4 pipeVec second:1
+   5 returning
+   6 
+   7 Test
+   8 This is a test program
+   9 for ras.
+  10 
+% removetag test.html |1 number > test3.txt
+% % cat test3.txt
+in check_dup_exec
+vect size1
+pipeVec first[0]:21
+pipeVec second:-2
+returning
+   1 <!test.html>
+   2 <TITLE>Test<TITLE>
+   3 <BODY>This is a <b>test</b> program
+   4 for ras.
+   5 </BODY>
+% removetag test.html |3 removetag test.html | number |1 number
+in check_dup_exec
+vect size3
+pipeVec first[0]:22
+pipeVec second:0
+if pipeVec first[0]:22
+if buff: 
+in check_dup_exec
+vect size1
+pipeVec first[0]:22
+pipeVec second:3
+returning
+
+Test
+This is a test program
+for ras.
+
+pipeVec first[0]:24
+pipeVec second:0
+if pipeVec first[0]:24
+if buff: 
+in check_dup_exec
+vect size3
+pipeVec first[0]:22
+pipeVec second:1
+pipeVec first[0]:23
+pipeVec second:0
+if pipeVec first[0]:23
+if buff: 
+in check_dup_exec
+vect size2
+pipeVec first[0]:22
+pipeVec second:2
+pipeVec first[0]:23
+pipeVec second:1
+returning
+
+Test
+This is a test program
+for ras.
+
+pipeVec first[0]:24
+pipeVec second:1
+returning
+   1 in check_dup_exec
+   2 vect size2
+   3 pipeVec first[0]:22
+   4 pipeVec second:2
+   5 pipeVec first[0]:23
+   6 pipeVec second:1
+   7 returning
+   8 
+   9 Test
+  10 This is a test program
+  11 for ras.
+  12 
+pipeVec first[0]:25
+pipeVec second:-2
+returning
+   1 in check_dup_exec
+   2 vect size1
+   3 pipeVec first[0]:22
+   4 pipeVec second:3
+   5 returning
+   6 
+   7 Test
+   8 This is a test program
+   9 for ras.
+  10 
+  11 in check_dup_exec
+  12 vect size3
+  13 pipeVec first[0]:22
+  14 pipeVec second:1
+  15 pipeVec first[0]:23
+  16 pipeVec second:0
+  17 if pipeVec first[0]:23
+  18 if buff: 
+  19 in check_dup_exec
+  20 vect size2
+  21 pipeVec first[0]:22
+  22 pipeVec second:2
+  23 pipeVec first[0]:23
+  24 pipeVec second:1
+  25 returning
+  26 
+  27 Test
+  28 This is a test program
+  29 for ras.
+  30 
+  31 pipeVec first[0]:24
+  32 pipeVec second:1
+  33 returning
+  34    1 in check_dup_exec
+  35    2 vect size2
+  36    3 pipeVec first[0]:22
+  37    4 pipeVec second:2
+  38    5 pipeVec first[0]:23
+  39    6 pipeVec second:1
+  40    7 returning
+  41    8 
+  42    9 Test
+  43   10 This is a test program
+  44   11 for ras.
+  45   12 
+% ls |2 ls | cat
+in check_dup_exec
+vect size4
+pipeVec first[0]:24
+pipeVec second:-3
+pipeVec first[0]:26
+pipeVec second:0
+if pipeVec first[0]:26
+if buff: 
+in check_dup_exec
+vect size2
+pipeVec first[0]:24
+pipeVec second:-1
+pipeVec first[0]:26
+pipeVec second:2
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+pipeVec first[0]:27
+pipeVec second:0
+if pipeVec first[0]:27
+if buff: 
+in check_dup_exec
+vect size3
+pipeVec first[0]:24
+pipeVec second:-2
+pipeVec first[0]:26
+pipeVec second:1
+pipeVec first[0]:27
+pipeVec second:1
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+pipeVec first[0]:28
+pipeVec second:-2
+returning
+in check_dup_exec
+vect size2
+pipeVec first[0]:24
+pipeVec second:-1
+pipeVec first[0]:26
+pipeVec second:2
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+in check_dup_exec
+vect size3
+pipeVec first[0]:24
+pipeVec second:-2
+pipeVec first[0]:26
+pipeVec second:1
+pipeVec first[0]:27
+pipeVec second:1
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+% ls |2 removetag test.html
+in check_dup_exec
+vect size4
+pipeVec first[0]:24
+pipeVec second:-5
+pipeVec first[0]:27
+pipeVec second:-2
+pipeVec first[0]:29
+pipeVec second:1
+pipeVec first[0]:30
+pipeVec second:-2
+returning
+
+Test
+This is a test program
+for ras.
+
+% cat
+in check_dup_exec
+vect size4
+pipeVec first[0]:24
+pipeVec second:-6
+pipeVec first[0]:27
+pipeVec second:-3
+pipeVec first[0]:29
+pipeVec second:0
+if pipeVec first[0]:29
+if buff: 
+in check_dup_exec
+vect size3
+pipeVec first[0]:24
+pipeVec second:-4
+pipeVec first[0]:27
+pipeVec second:-1
+pipeVec first[0]:29
+pipeVec second:2
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
+pipeVec first[0]:31
+pipeVec second:-2
+returning
+in check_dup_exec
+vect size3
+pipeVec first[0]:24
+pipeVec second:-4
+pipeVec first[0]:27
+pipeVec second:-1
+pipeVec first[0]:29
+pipeVec second:2
+returning
+bin
+foo
+server
+t
+test1.txt
+test2.txt
+test3.txt
+test.html
