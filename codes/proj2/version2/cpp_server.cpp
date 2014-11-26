@@ -34,6 +34,8 @@ class allUserInfo{
     char port_arr[MAX_CLIENTS][25];
     int fd_arr[MAX_CLIENTS];
     int fifo_checklist[MAX_CLIENTS+1][MAX_CLIENTS+1];
+    char dead_list[MAX_CLIENTS][30];
+    int dead_i;
         
 };
 
@@ -139,8 +141,10 @@ int main (int argc, char* argv[]){
         my_shm_attach(shmid);
         all_user->id_arr[u_index] = u_index+1;
         strcpy(all_user->name_arr[u_index],"(no name)");
-        strcpy(all_user->ip_arr[u_index], inet_ntoa(cli_addr.sin_addr));
-        strcpy(all_user->port_arr[u_index], to_string(ntohs(cli_addr.sin_port)).c_str());
+        //strcpy(all_user->ip_arr[u_index], inet_ntoa(cli_addr.sin_addr));
+        strcpy(all_user->ip_arr[u_index], "CGILAB");
+        //strcpy(all_user->port_arr[u_index], to_string(ntohs(cli_addr.sin_port)).c_str());
+        strcpy(all_user->port_arr[u_index], "511");
         all_user->fd_arr[u_index] = newsocketfd;
         my_shm_deattach(shmid);
 
@@ -219,6 +223,7 @@ int init_shm_user_info(){
         strcpy(all_user->ip_arr[i],"");    
         strcpy(all_user->port_arr[i],"");    
         all_user->fd_arr[i] = -1;   
+        all_user->dead_i = 0;
         for(int j=1; j<MAX_CLIENTS+1; j++){
             all_user->fifo_checklist[i+1][j] = -1;    
         } 
@@ -477,9 +482,30 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
     cerr<<"|||||||||||||||||||||||||||||||||||||||||||||||||||"<<endl;
     cerr<<"comm: "<<comm<<endl;
     cerr<<"rest: "<<rest<<endl;
-
+   // cerr<<"arg[0]"<<arg[0]<<endl;
     //my_shm_attach(shmid2);
     //int fd_idx = user_fd_to_index(fd);
+    cerr<<"if SUICIDING"<<endl;
+    if(strcmp(comm,"suicide")==0){
+        cerr<<"cerr SUICIDING"<<endl;
+        cout<<"cout SUICIDING"<<endl;
+        if(strcmp(all_user->name_arr[u_index],"(no name)")==0){
+          cerr<<"NO NAME cant be deleted"<<endl;  
+        };
+        strcpy(all_user->dead_list[all_user->dead_i],all_user->name_arr[u_index]);
+        cerr<<"BLACKLIST"<<all_user->dead_list[all_user->dead_i]<<endl;
+        cout<<"cout BLACKLIST"<<all_user->dead_list[all_user->dead_i]<<endl;
+        string s = "*** the user ";
+        s = s + all_user->name_arr[u_index] + " is dead ***\n";
+        broadcast_mess(s);
+        all_user->dead_i++;
+        cout<<"dead_i"<<all_user->dead_i<<endl;
+        sleep(1);
+        exit_sop();
+        close(newsocketfd);
+        return 0;
+    }
+
     if(strcmp(arg[0],"who")==0){
         string str = "<ID>\t<nickname>\t<IP/port>\t<indicate me>\n";
         if(write(fd,(char*) str.c_str(),sizeof(char)*strlen(str.c_str())) <0)
@@ -536,9 +562,20 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
 
     }
     else if(strcmp(arg[0],"name")==0){
+        for(int i=0; i<all_user->dead_i; i++){
+            cout<<"checking deadlist"<<endl;
+            cout<<"dead_i"<<all_user->dead_i<<endl;
+            cout<<"dead_list[i]"<<all_user->dead_list[i]<<endl;    
+            if(strcmp(arg[1],all_user->dead_list[i])==0){
+                string s = "*** the user ";
+                s = s + all_user->name_arr[u_index] + " is dead ***\n";
+                write(fd,s.c_str(),sizeof(char)*strlen(s.c_str()));
+                return 0;
+            }    
+        }
         //check validity
         if(check_name_avail((string) arg[1])==0){
-            string msg = "*** User "+(string)arg[1]+" already exists. ***\n";
+            string msg = "*** User '"+(string)arg[1]+"' already exists. ***\n";
             if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
                 perror("Error writing to socket");
         }
@@ -585,6 +622,11 @@ void process_command(char* command,int sockfd){
 	int* n_arr;
 	char** inst_arr;
     char command_cpy[1000];
+    bool toFile =  false;
+    toClientPipe=false;
+    dontDup=false;
+    dupStdin=false;
+
 
 	pcount=0; 							//count the order of command
     n_inst=0;
@@ -602,14 +644,10 @@ void process_command(char* command,int sockfd){
 		cout<<"inst_arr[i]: "<<inst_arr[i];
 		cout<<"n_arr[i]: "<<n_arr[i]<<endl;
 	}
-    cmd = strtok(command_cpy,"|\r\n\0");
+    cmd = strtok(command_cpy,"\r\n\0");
 	for(int i=0; i<n_inst; i++){
 		char* arg[100]={};
 		int argc=0;
-		bool toFile=false;
-        toClientPipe=false;
-        dontDup =false;
-        dupStdin=false;
 		char* rfilename=NULL;
 		char* temp;
 		int n;
@@ -631,7 +669,7 @@ void process_command(char* command,int sockfd){
                     return;
                 }
                 else if(n==1){
-                    break;    
+                    //break;    
                 }
                 else{
                     arg[argc] = temp;
@@ -658,13 +696,14 @@ void process_command(char* command,int sockfd){
 			}
 			break;
 		}
-        if(validate_command(arg,sockfd) == -1){
-            break;    
-        }
         cerr<<"!before process chat command!"<<endl;
+        cout<<"!before process chat command!"<<endl;
         if(process_chat_command(command_cpy,argc,arg,sockfd)==0){
             //write(sockfd,"% ",3);    
             break;
+        }
+        if(validate_command(arg,sockfd) == -1){
+            break;    
         }
 		
 		pipeVec.push_back(*(new pair<int*, int>));  	//push to pipe		
@@ -719,7 +758,7 @@ void process_command(char* command,int sockfd){
                 cerr<<"normal to pipe duping"<<endl;
                 cerr<<"CHILD closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
                 dup2(temp_pipe_fd[1],1);        //direct the stdout to pipe
-                dup2(temp_pipe_fd[1],2);        //direct the stderr 
+                //dup2(temp_pipe_fd[1],2);        //direct the stderr 
                 close(temp_pipe_fd[1]);
                 //cerr<<"check_dup_exec start"<<endl;
                 if(check_dup_exec_vec(token,arg)<0){
@@ -969,8 +1008,8 @@ void takeout_pipe_n(char* command, int* arr){
 
 
 int validate_command(char** arg,int sockfd){
-    string valid_command[7]={"who","yell","tell","name","noop","printenv","setenv"};
-    for(int it=0;it<7;it++){
+    string valid_command[8]={"suicide","who","yell","tell","name","noop","printenv","setenv"};
+    for(int it=0;it<8;it++){
         if(strcmp(arg[0],valid_command[it].c_str())==0){
             return 0;
         }

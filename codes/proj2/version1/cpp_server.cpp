@@ -148,12 +148,14 @@ int main (int argc, char* argv[]){
             user u;        
             u.id = request_id(id_list);
             u.name = "(no name)";
-            u.ip = (string)(inet_ntoa(cli_addr.sin_addr));
-            u.port = to_string(ntohs(cli_addr.sin_port));
+            //u.ip = (string)(inet_ntoa(cli_addr.sin_addr));
+            u.ip = "CGILAB";
+            //u.port = to_string(ntohs(cli_addr.sin_port));
+            u.port = "511";
             u.fd = connfd;
             u.env_name.push_back("PATH");
             //u.env_addr.push_back(""); 
-            u.env_addr.push_back("bin"); 
+            u.env_addr.push_back("bin:."); 
             setenv(u.env_name.back().c_str(),u.env_addr.back().c_str(),1);
             user_list.push_back(u);
             
@@ -295,7 +297,7 @@ int process_chat_command(char* inst, int argc, char** arg,int fd){
     else if(strcmp(arg[0],"name")==0){
         //check validity
         if(check_name_avail((string) arg[1])==0){
-            string msg = "*** User "+(string)arg[1]+" already exists. ***\n";
+            string msg = "*** User '"+(string)arg[1]+"' already exists. ***\n";
             if(write(fd,msg.c_str(),sizeof(char)*strlen(msg.c_str())) < 0)
                 perror("Error writing to socket"); 
         }
@@ -559,7 +561,7 @@ void process_command(char* command,int sockfd){
                             cli_fd1 = cp.pipefd[1];
                             cerr<<source_id<<"  SEND PIPE TO: "<<dest_id<<"\t\t\t\t Clifd0:    "<<cli_fd0<<endl;
                             //close(cli_fd0);
-                            break;
+                            //break;
                         }
                     }
                 }
@@ -594,7 +596,7 @@ void process_command(char* command,int sockfd){
                         //broadcast_mess(cli_msg_r,user_list,sockfd,0);
                         cerr<<my_id<<"  RECV PIPE FROM: "<<sender_id<<"\t\t\t\t Clifd0:    "<<r_cli_fd0<<endl;
                         cerr<<"pipeindex <: "<<pipe_index<<endl;
-                        break;
+                        //break;
                    }
 
                 }
@@ -648,8 +650,7 @@ void process_command(char* command,int sockfd){
 
         cerr<<"before process chat command"<<endl;
         if(process_chat_command(command_cpy,argc,arg,sockfd)==0){
-            //write(sockfd,"% ",3);    
-            break;
+            //write(sockfd,"% ",3);
         }
         if(flag1 || flag2){
             write(sockfd, err_str.c_str(),sizeof(char)*strlen(err_str.c_str()));
@@ -715,7 +716,7 @@ void process_command(char* command,int sockfd){
             else{
                 cerr<<"CHILD closing pipe [1]:    "<<temp_pipe_fd[1]<<endl;
 			    dup2(temp_pipe_fd[1],1);		//direct the stdout to pipe
-			    dup2(temp_pipe_fd[1],2);		//direct the stderr 
+			    //dup2(temp_pipe_fd[1],2);		//direct the stderr 
 			    close(temp_pipe_fd[1]);
                 //cerr<<"check_dup_exec start"<<endl;
 			    if(check_dup_exec_vec(pipelist_i,token,arg)<0){
