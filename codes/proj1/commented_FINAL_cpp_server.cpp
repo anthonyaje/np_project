@@ -166,7 +166,7 @@ void process_command(char* command,int sockfd){
 			    cerr<<"to file redirection found"<<endl;
 			    toFile = true; 
 			    rfilename = strtok(NULL," \n");
-			    fd = open(rfilename,O_RDWR|O_CREAT,777);
+			    fd = open(rfilename,O_TRUNC|O_RDWR|O_CREAT,777);
 			    break;
  			} 
 			else{
