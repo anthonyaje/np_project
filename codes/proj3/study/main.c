@@ -11,18 +11,10 @@ char* readline(FILE* fp){
 
 int main(void)
 {
-    FILE * fp;
+    char buff[10000];
+    const char* t = "i love %s. %d times a day";
+    sprintf(buff,t,"deborah",5);
+    printf("buff: [%s]\n",buff);    
 
-    fp = fopen("main.c", "r");
-    if (fp == NULL)
-        exit(EXIT_FAILURE);
-
-    char* str = readline(fp);
-    printf("%s", str);
-
-    str = readline(fp);
-    printf("%s", str);
-    
-    fclose(fp);
     exit(EXIT_SUCCESS);
 }

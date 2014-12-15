@@ -247,7 +247,6 @@ void execute_cgi(int client,const char* path,const char* method,const char* quer
             cerr<<length_env<<endl;
             putenv(length_env);
         }
-        //TODO
         cerr<<"EXECUTING "<<path<<endl; 
         //execl("/~mjhung/study/mult.cgi","/~mjhung/study/mult.cgi",NULL);
         execl(path,path,NULL);
@@ -265,13 +264,13 @@ void execute_cgi(int client,const char* path,const char* method,const char* quer
                 //printf("DEBUG: [%c]\n",c);
                 write(fd_cgi_in[1],&c,1);    
             }
-        waitpid(pid,&status, 0);
         cout<<"Parent reading"<<endl;
         while(read(fd_cgi_out[0],&c,1) > 0){
             //printf("from cgi [%c]\n",c);
             send(client, &c, 1 ,0);
         }
 
+        waitpid(pid,&status, 0);
         close(fd_cgi_in[1]);
         close(fd_cgi_out[0]);
     }

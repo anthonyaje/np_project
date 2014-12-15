@@ -57,8 +57,9 @@ int main(){
             "Content-Type:text/html;charset=iso-8859-1",13,10);
     printf("<TITLE>PROJECT 3</TITLE>\n");
     printf("<H3></H3>\n");
-    //data = getenv("QUERY_STRING");
-    data = (char*) "h1=nplinux4.cs.nctu.edu.tw&p1=8864&f1=test%2Ft1.txt&h2=nplinux3.cs.nctu.edu.tw&p2=8863&f2=test%2Ft2.txt&h3=&p3=&f3=t&h4=&p4=&f4=&h5=&p5=&f5=";
+    data = getenv("QUERY_STRING");
+    //data = (char*) "h1=nplinux4.cs.nctu.edu.tw&p1=8864&f1=test%2Ft1.txt&h2=nplinux3.cs.nctu.edu.tw&p2=8863&f2=test%2Ft2.txt&h3=nplinux2.cs.nctu.edu.tw&p3=8862&f3=test%2Ft3.txt&h4=&p4=&f4=&h5=&p5=&f5=";
+    //data = (char*) "h1=nplinux4.cs.nctu.edu.tw&p1=8864&f1=test%2Ft1.txt&h2=nplinux3.cs.nctu.edu.tw&p2=8863&f2=test%2Ft2.txt&h3=nplinux2.cs.nctu.edu.tw&p3=8862&f3=test%2Ft3.txt&h4=nplinux4.cs.nctu.edu.tw&p4=8861&f4=test%2Ft3.txt&h5=&p5=&f5=";
     data = decode_html(data);
     printf("DATA: [%s]<br><br>",data);
     if(data == NULL)
@@ -84,7 +85,8 @@ int main(){
     fd_set read_fdset;
     fd_set sock_fdset;
     struct addrinfo hints;
-    int fdmax = 0;
+    int fdmax = getdtablesize();
+    //int fdmax = 0;
     FD_ZERO(&read_fdset);
     FD_ZERO(&sock_fdset);
     memset(&hints,0, sizeof hints);
@@ -134,8 +136,8 @@ int main(){
         printf("Setting up fd: %d\n",targets[i].socketfd);
         FD_SET(targets[i].socketfd, &sock_fdset);
         printf("Isset: %d\n",(FD_ISSET(targets[i].socketfd,&sock_fdset)));
-        if(targets[i].socketfd > fdmax){
-             fdmax = targets[i].socketfd;
+        if(targets[i].socketfd+1 > fdmax){
+             fdmax = targets[i].socketfd+1;
         }
     }
 
@@ -170,19 +172,24 @@ int main(){
         int nbytes;
 
         read_fdset = sock_fdset;
-        memcpy(&read_fdset,&sock_fdset, sizeof(sock_fdset));
+        //memcpy(&read_fdset,&sock_fdset, sizeof(sock_fdset));
         
         for(int i=0; i<targets.size(); i++){
             if(targets[i].status != F_INIT){
+                struct timeval tv;
+                tv.tv_sec = 1;
+                tv.tv_usec = 0;
                 printf("Before SELECT of %d\n",i);
                 printf("size: %d. fd: %d.\n",targets.size(),targets[i].socketfd);
-                if(select(fdmax, &read_fdset, NULL, (fd_set*)0, (struct timeval*)0) < 0){
+                //if(select(fdmax, &read_fdset, NULL, (fd_set*)0, (struct timeval*)0) < 0){
+                if(select(fdmax, &read_fdset, NULL, (fd_set*)0, &tv) < 0){
                     perror("select");
                     continue;
                 }
                 printf("After SELECT of %d\n",i);
-                fprintf(stderr,"status %d. sockfd: %d. is_set_val: %d.\n",targets[i].status, targets[i].socketfd,(FD_ISSET(targets[i].socketfd,&sock_fdset)));
-                if((targets[i].status==F_CONNECTED) && (FD_ISSET(targets[i].socketfd,&sock_fdset))){
+                fprintf(stderr,"status %d. sockfd: %d. is_set_val: %d.\n",targets[i].status, targets[i].socketfd,(FD_ISSET(targets[i].socketfd,&read_fdset)));
+                fprintf(stderr,"maxfd: %d\n",fdmax);
+                if((targets[i].status==F_CONNECTED) && (FD_ISSET(targets[i].socketfd,&read_fdset))){
                     int sockfd = targets[i].socketfd;
                     memset(buffer, 0, BUFF_SIZE);
                     if((nbytes = recv(sockfd,buffer,BUFF_SIZE,0)) <= 0){
@@ -197,9 +204,9 @@ int main(){
                         FD_CLR(sockfd,&sock_fdset);
                         targets.erase(targets.begin()+i);
                         if(targets.size() == 0){
-                            fprintf(stderr,"Exit now, all connection to ");
+                            fprintf(stderr,"Exit now, all connection to be killed");
                             cleanup();
-
+                            return 1;
                         }
                         if(connected==0){
                             break_flag = 1;
@@ -209,18 +216,26 @@ int main(){
                     else{
                         fprintf(stderr,"get response from #%d:%lu bytes:\n[%s]\n\n",i,strlen(buffer), buffer);
                         string s(buffer);
+                        
+                        char* t = strtok(buffer,"%\r\n");
+                        while(t != NULL){
+                            print_inject_script(targets[i].id, t);
+                            t = strtok(NULL,"%\r\n");
+                        }
                         //printf("s.find ret: %d\n",s.find("%"));
                         if(s.find("%") != string::npos){
                             fprintf(stderr,"get prompt, one line server\n");
                             printf("sockefd: %d\n",targets[i].socketfd);
+                            print_inject_script(targets[i].id, (char*)"% ");
                             feed_line_to_server(targets[i],i);
                         }
-                        print_inject_script(targets[i].id, buffer);
-                        sleep(1);
+                        //FIXME why it doesnt work if it is taken out
+                        //sleep(1);
                     }
                 }else{
                     printf("either status not connected OR fd_isset\n");    
                 }    
+                //FIXME is this necessary 
                 //read_fdset = sock_fdset;
             }
             if(break_flag){
@@ -246,19 +261,26 @@ void cleanup(){
 }
 
 void print_inject_script(int id, char* msg){
+    //FIXME encoding error
+    //msg = encode_html(msg);
+    fprintf(stderr,"inside print_col_html_begin(). id:[%d] msg:\n[%s]\n", id, msg);
     char outbuf[300000];
-    while(msg[strlen(msg)-1] == '\n' || msg[strlen(msg)-1] == '\r') msg[strlen(msg)-1] = 0;
+    if(msg[strlen(msg)-1] == '\n' || msg[strlen(msg)-1] == '\r') 
+        msg[strlen(msg)-1] = '\0';
     const char* templatee = "<script>document.all['m%d'].innerHTML += \"%s<br>\";</script>\n";
     const char* template_withoutbr = "<script>document.all['m%d'].innerHTML += \"%s\";</script>\n";
     int i;
     if(strcmp(msg, "% ")==0)
     {
         sprintf(outbuf, template_withoutbr, id, msg);
+    //    fprintf(stderr,"OUTBUF: %s\n",outbuf);
     }
     else
     {
         sprintf(outbuf, templatee, id, msg);
+     //   fprintf(stderr,"%s\n",outbuf);
     }
+
     printf("%s", outbuf);
     fflush(stdout);       
 }
@@ -281,7 +303,11 @@ void feed_line_to_server(TARGET depricated, int i){
         perror("feed_line write failed");    
         return;
     }
-
+    char* t = strtok(line,"%\r\n");
+    while(t != NULL){
+        print_inject_script(targets[i].id, t);
+        t = strtok(NULL,"%\r\n");
+    }
     //fclose(fp);
     if (line)
         free(line);
