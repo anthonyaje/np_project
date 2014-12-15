@@ -76,7 +76,6 @@ int main(){
             t.status = F_INIT;
             t.filefp = NULL;
             targets.push_back(t);
-            //cout<<h[i]<<"  "<<p[i]<<"  "<<f[i]<<"  "<<"<br>";    
         }
     }
     print_col_html_begin();
@@ -121,7 +120,6 @@ int main(){
             fcntl(targets[i].socketfd, F_SETFL, flags | O_NONBLOCK);    
         }
         int ret = connect(targets[i].socketfd, targets[i].server_info->ai_addr, targets[i].server_info ->ai_addrlen);
-       // if(connect(targets[i].socketfd, (struct sockaddr*) &(targets[i].server_info), sizeof((targets[i].server_info))) < 0){
         if((ret<0) && (errno != EINPROGRESS)){
             perror("connect error:");
             targets[i].status = F_CONNECTING;
@@ -148,7 +146,6 @@ int main(){
             if(targets[i].status == F_CONNECTING){
                 printf("Reconnecting\n");
                 int ret = connect(targets[i].socketfd, targets[i].server_info->ai_addr, targets[i].server_info ->ai_addrlen);
-                // if(connect(targets[i].socketfd, (struct sockaddr*) &(targets[i].server_info), sizeof((targets[i].server_info))) < 0){
                 if((ret<0) && (errno != EINPROGRESS)){
                     perror("connect error:");
                     targets[i].status = F_CONNECTING;
@@ -173,7 +170,8 @@ int main(){
         int nbytes;
 
         read_fdset = sock_fdset;
-        //memcpy(&read_fdset,&sock_fdset, sizeof(sock_fdset));
+        memcpy(&read_fdset,&sock_fdset, sizeof(sock_fdset));
+        
         for(int i=0; i<targets.size(); i++){
             if(targets[i].status != F_INIT){
                 printf("Before SELECT of %d\n",i);
@@ -183,13 +181,13 @@ int main(){
                     continue;
                 }
                 printf("After SELECT of %d\n",i);
-                fprintf(stderr,"status %d. sockfd: %d. is_set_val: %d.\n",targets[i].status, targets[i].socketfd,(FD_ISSET(targets[i].socketfd,&read_fdset)));
-                if((targets[i].status==F_CONNECTED) && (FD_ISSET(targets[i].socketfd,&read_fdset))){
+                fprintf(stderr,"status %d. sockfd: %d. is_set_val: %d.\n",targets[i].status, targets[i].socketfd,(FD_ISSET(targets[i].socketfd,&sock_fdset)));
+                if((targets[i].status==F_CONNECTED) && (FD_ISSET(targets[i].socketfd,&sock_fdset))){
                     int sockfd = targets[i].socketfd;
                     memset(buffer, 0, BUFF_SIZE);
                     if((nbytes = recv(sockfd,buffer,BUFF_SIZE,0)) <= 0){
                         if(nbytes == 0){
-                            fprintf(stderr,"connection closed by server");
+                            fprintf(stderr,"connection closed by server\n");
                         }
                         else{
                             perror("recv:");    
@@ -201,6 +199,7 @@ int main(){
                         if(targets.size() == 0){
                             fprintf(stderr,"Exit now, all connection to ");
                             cleanup();
+
                         }
                         if(connected==0){
                             break_flag = 1;
@@ -210,8 +209,7 @@ int main(){
                     else{
                         fprintf(stderr,"get response from #%d:%lu bytes:\n[%s]\n\n",i,strlen(buffer), buffer);
                         string s(buffer);
-                        //printf("string s after trim: \n[%s]\n",s.c_str());
-                        printf("s.find ret: %d\n",s.find("%"));
+                        //printf("s.find ret: %d\n",s.find("%"));
                         if(s.find("%") != string::npos){
                             fprintf(stderr,"get prompt, one line server\n");
                             printf("sockefd: %d\n",targets[i].socketfd);
@@ -223,6 +221,7 @@ int main(){
                 }else{
                     printf("either status not connected OR fd_isset\n");    
                 }    
+                //read_fdset = sock_fdset;
             }
             if(break_flag){
                 break;   
@@ -236,7 +235,6 @@ int main(){
 
 
 void cleanup(){
-     //FIXME what to be clean up??   
     for(int i=0; i<targets.size(); i++){
         if( fclose(targets[i].filefp)){
             perror("close testfile");
