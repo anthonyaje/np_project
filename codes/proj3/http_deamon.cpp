@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+#include <string>
 
 using namespace std;
 //DEFINE
@@ -138,6 +139,11 @@ void process_request(int client){
     strcpy(path,".");
     strcat(path,url);
     printf("PATH: %s\n",path);
+    string s(path);
+    if(s.find("cgi") != string::npos){
+        printf("direct exec cgi");
+        cgi = true;
+    }
 
     if(cgi){
         printf("cgi true! Executing CGI\n");

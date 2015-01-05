@@ -11,7 +11,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <algorithm>
-
+#include <stdlib.h>
 
 using namespace std;
 //CONSTANTS
@@ -38,7 +38,7 @@ typedef struct target{
 } TARGET;
 
 //PROTOTYPEs
-void parse_query(char* str, char** h, char** p, char** f);
+void parse_query(char* str, char** h, char** port, char** f);
 char* encode_html(char* str);
 char* decode_html(char* str);
 void print_col_html_begin();
@@ -49,10 +49,12 @@ void cleanup();
 
 //GLOBALs
 vector<TARGET> targets;
+int h_block[5];
 
 int main(){
     char *data, *h[5], *p[5], *f[5];
     char* tmp;
+    bool block = false;
     printf("%s%c%c\n",
             "Content-Type:text/html;charset=iso-8859-1",13,10);
     printf("<TITLE>PROJECT 3</TITLE>\n");
@@ -61,13 +63,14 @@ int main(){
     //data = (char*) "h1=nplinux4.cs.nctu.edu.tw&p1=8864&f1=test%2Ft1.txt&h2=nplinux3.cs.nctu.edu.tw&p2=8863&f2=test%2Ft2.txt&h3=nplinux2.cs.nctu.edu.tw&p3=8862&f3=test%2Ft3.txt&h4=&p4=&f4=&h5=&p5=&f5=";
     //data = (char*) "h1=nplinux4.cs.nctu.edu.tw&p1=8864&f1=test%2Ft1.txt&h2=nplinux3.cs.nctu.edu.tw&p2=8863&f2=test%2Ft2.txt&h3=nplinux2.cs.nctu.edu.tw&p3=8862&f3=test%2Ft3.txt&h4=nplinux4.cs.nctu.edu.tw&p4=8861&f4=test%2Ft3.txt&h5=&p5=&f5=";
     data = decode_html(data);
-    printf("DATA: [%s]<br><br>",data);
+    //printf("DATA: [%s]<br><br>",data);
     if(data == NULL)
         printf("<P>Error! Error in passing data from form to script."); 
     
     parse_query(data,h,p,f);
     
     for(int i=0; i<5; i++){
+        block=false;
         if(h[i] != NULL){
             TARGET t;
             t.id = i;
@@ -76,9 +79,19 @@ int main(){
             t.test_file = f[i];
             t.status = F_INIT;
             t.filefp = NULL;
-            targets.push_back(t);
+            string s(h[i]);
+            if(s.find("140.113.210.") != string::npos){
+                //print_inject_script(t.id, (char*)"Connection Blocked");
+                fprintf(stderr,"blocking\n");
+                h_block[i]=(t.id);
+                block = true;    
+            }
+            if(block == false){
+                targets.push_back(t);
+            }
         }
     }
+    fprintf(stderr,"before print col begin\n");
     print_col_html_begin();
     
     fprintf(stderr,"after print col begin\n");
@@ -133,9 +146,9 @@ int main(){
             targets[i].status = F_CONNECTED;    
         }
         
-        printf("Setting up fd: %d\n",targets[i].socketfd);
+        fprintf(stderr,"Setting up fd: %d\n",targets[i].socketfd);
         FD_SET(targets[i].socketfd, &sock_fdset);
-        printf("Isset: %d\n",(FD_ISSET(targets[i].socketfd,&sock_fdset)));
+        fprintf(stderr,"Isset: %d\n",(FD_ISSET(targets[i].socketfd,&sock_fdset)));
         if(targets[i].socketfd+1 > fdmax){
              fdmax = targets[i].socketfd+1;
         }
@@ -146,7 +159,7 @@ int main(){
         //Reconnection
         for(int i = 0; i< targets.size(); i++){
             if(targets[i].status == F_CONNECTING){
-                printf("Reconnecting\n");
+                fprintf(stderr,"Reconnecting\n");
                 int ret = connect(targets[i].socketfd, targets[i].server_info->ai_addr, targets[i].server_info ->ai_addrlen);
                 if((ret<0) && (errno != EINPROGRESS)){
                     perror("connect error:");
@@ -156,9 +169,9 @@ int main(){
                 else{
                     targets[i].status = F_CONNECTED;
                     connected++;
-                    printf("Resetting up fd: %d\n",targets[i].socketfd);
+                    fprintf(stderr,"Resetting up fd: %d\n",targets[i].socketfd);
                     FD_SET(targets[i].socketfd, &sock_fdset);
-                    printf("Isset: %d\n",(FD_ISSET(targets[i].socketfd,&sock_fdset)));
+                    //printf("Isset: %d\n",(FD_ISSET(targets[i].socketfd,&sock_fdset)));
                 }    
             }
         }
@@ -179,14 +192,14 @@ int main(){
                 struct timeval tv;
                 tv.tv_sec = 1;
                 tv.tv_usec = 0;
-                printf("Before SELECT of %d\n",i);
-                printf("size: %d. fd: %d.\n",targets.size(),targets[i].socketfd);
+                //printf("Before SELECT of %d\n",i);
+                //printf("size: %d. fd: %d.\n",targets.size(),targets[i].socketfd);
                 //if(select(fdmax, &read_fdset, NULL, (fd_set*)0, (struct timeval*)0) < 0){
                 if(select(fdmax, &read_fdset, NULL, (fd_set*)0, &tv) < 0){
                     perror("select");
                     continue;
                 }
-                printf("After SELECT of %d\n",i);
+                //printf("After SELECT of %d\n",i);
                 fprintf(stderr,"status %d. sockfd: %d. is_set_val: %d.\n",targets[i].status, targets[i].socketfd,(FD_ISSET(targets[i].socketfd,&read_fdset)));
                 fprintf(stderr,"maxfd: %d\n",fdmax);
                 if((targets[i].status==F_CONNECTED) && (FD_ISSET(targets[i].socketfd,&read_fdset))){
@@ -225,7 +238,7 @@ int main(){
                         //printf("s.find ret: %d\n",s.find("%"));
                         if(s.find("%") != string::npos){
                             fprintf(stderr,"get prompt, one line server\n");
-                            printf("sockefd: %d\n",targets[i].socketfd);
+                            fprintf(stderr,"sockefd: %d\n",targets[i].socketfd);
                             print_inject_script(targets[i].id, (char*)"% ");
                             feed_line_to_server(targets[i],i);
                         }
@@ -233,7 +246,7 @@ int main(){
                         //sleep(1);
                     }
                 }else{
-                    printf("either status not connected OR fd_isset\n");    
+                    fprintf(stderr,"either status not connected OR fd_isset\n");    
                 }    
                 //FIXME is this necessary 
                 //read_fdset = sock_fdset;
@@ -297,7 +310,7 @@ void feed_line_to_server(TARGET depricated, int i){
     }
     //while ((read = getline(&line, &len, fp)) != -1) {
     read = getline(&line, &len, fp);
-    printf("FEED line: [%s] to [%d]\n", line,targets[i].socketfd);
+    fprintf(stderr,"FEED line: [%s] to [%d]\n", line,targets[i].socketfd);
     //line[len] = '\0';
     if(write(targets[i].socketfd, line, len+1) < 0){
         perror("feed_line write failed");    
@@ -324,7 +337,13 @@ void print_col_html_begin(){
     printf("<font face=\"Courier New\" size=2 color=#FFFF99>\n");
     printf("<table width=\"800\" border=\"1\">\n");
     printf("<tr>\n");
-    for(int i = 0; i < targets.size(); i++) printf("<td>%s</td>\n", targets[i].ip.c_str());
+    for(int i = 0; i < targets.size(); i++){ 
+        //printf("<td>%s</td>\n", targets[i].ip.c_str());
+        printf("<td>%s</td>\n", targets[i].ip.c_str());
+        //fprintf(stderr,"taarget: %d\n",targets[i].id);
+    }
+
+    //for(int i = 0; i < targets.size(); i++) printf("<td>%s</td>\n", targets[targets[i].id].ip.c_str());
     printf("<tr>\n");
     printf("<td valign=\"top\" id=\"m0\"></td><td valign=\"top\" id=\"m1\"></td><td valign=\"top\" id=\"m2\"></td><td valign=\"top\" id=\"m3\"></td><td valign=\"top\" id=\"m4\"></td></tr>\n");
     printf("</table>\n");    
