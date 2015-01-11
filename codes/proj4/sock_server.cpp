@@ -186,6 +186,9 @@ int redirection_select(int ssockfd, int rsockfd){
     ndfs = rsockfd>ssockfd?rsockfd:ssockfd;
     ndfs++;
     char* buffer[BUFFER_SIZE];
+    int closeS, closeR;
+    closeS = 0;
+    closeR = 0;
     while(1){
         active_set = read_set;
         int nready = select(ndfs, &active_set, (fd_set*)0, (fd_set*)0, (struct timeval*)0 );
@@ -204,13 +207,20 @@ int redirection_select(int ssockfd, int rsockfd){
             
             }else if(ret==0){
                 perror("ret == 0");    
+                FD_CLR(rsockfd,&active_set);
+                closeR = 1;
+                shutdown(rsockfd,SHUT_RD);
+                shutdown(ssockfd,SHUT_RD);
                 //printf("-> Buffer: \n[%s]\n",buffer);
                 //write(rsockfd,buffer,sizeof(buffer));
-                break;
+                if(closeR&&closeS)
+                    break;
             }
             else{
                 printf("<- Buffer: \n[%s]\n",buffer);
-                write(ssockfd,buffer,sizeof(buffer));
+                int r = write(ssockfd,buffer,sizeof(buffer));
+                if(r<0)
+                    perror("write error select");
             }
         }
         if(FD_ISSET(ssockfd, &active_set)){
@@ -223,17 +233,27 @@ int redirection_select(int ssockfd, int rsockfd){
             }
             else if(ret==0){
                 perror("ret == 0");    
+                FD_CLR(ssockfd,&active_set);
+                closeS = 1;
+                shutdown(rsockfd,SHUT_RD);
+                shutdown(ssockfd,SHUT_RD);
                 //printf("-> Buffer: \n[%s]\n",buffer);
                 //write(rsockfd,buffer,sizeof(buffer));
-                break;
+                if(closeR&&closeS)
+                    break;
             }
             else{
                 printf("-> Buffer: \n[%s]\n",buffer);
-                write(rsockfd,buffer,sizeof(buffer));
-                //sleep(1);
+                int r = write(rsockfd,buffer,sizeof(buffer));
+                if(r<0)
+                    perror("write error select");
+                //Need Sleep here 
+                sleep(1);
             }
         }
     }
+    close(rsockfd);
+    close(ssockfd);
 return 0;
 }
 int check_socksconf(unsigned int ip){
