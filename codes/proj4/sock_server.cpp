@@ -84,6 +84,7 @@ int main(int argc, char** argv){
                 deny_access = check_socksconf(DST_IP);
                 
                 printf("Read Buffer: [%h] Buffer Len:[%d]\n",buffer,strlen(buffer));
+                printf("VN: %d\n",VN);
                 printf("Dest IP:[%u]. Dest Port:[%u]",DST_IP&0xFFFFFFFF, DST_PORT&0xFFFFFFFF);
                 //init return package
                 package[0] = 0;
@@ -91,6 +92,9 @@ int main(int argc, char** argv){
                 if(deny_access){
                     //access denied
                     package[1] = (unsigned char) 91 ; // 90 or 91 
+                    for(int k=2; k<=7; k++)
+                        package[k] = buffer[k];
+                    write(ssockfd,package, sizeof(package));
                 }
                 else{
                     //CONNECT
@@ -104,10 +108,11 @@ int main(int argc, char** argv){
                         for(int j=0;j<8;j++){
                             printf("pack[%d]: %u\n",j ,package[j]&0x000000FF);
                         }
+                        
+                        //Bricking string ip & port
                         string str_ip, str_port;
                         str_ip = "";
                         str_port = "";
-                        //Bricking string ip & port
                         char tmp[100];
                         for(int i=4; i<7; i++){
                             snprintf(tmp,sizeof(tmp),"%u", buffer[i]&0x000000FF);
@@ -121,10 +126,14 @@ int main(int argc, char** argv){
                         str_port += tmp;
                         cout<<"STR IP:"<<str_ip<<" STR Port: "<<str_port<<endl;
                         
+                        //Connect to DEST
+                        rsockfd = connectTCP(str_ip.c_str(),str_port.c_str());
+                        if(rsockfd<=0)
+                            package[1] = (unsigned char) 91 ; // 90 or 91 
+                        
                         //Send the reply ti CGI
                         write(ssockfd,package, sizeof(package));
                         printf("reply package sent back!!\n");
-                        rsockfd = connectTCP(str_ip.c_str(),str_port.c_str());
                         //Do redirection between cgi <-> socks <-> ras
                         redirection_select(ssockfd, rsockfd);
                         done = 1;
@@ -185,7 +194,7 @@ int redirection_select(int ssockfd, int rsockfd){
     FD_SET(ssockfd, &read_set);
     ndfs = rsockfd>ssockfd?rsockfd:ssockfd;
     ndfs++;
-    char* buffer[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
     int closeS, closeR;
     closeS = 0;
     closeR = 0;
@@ -217,10 +226,12 @@ int redirection_select(int ssockfd, int rsockfd){
                     break;
             }
             else{
-                printf("<- Buffer: \n[%s]\n",buffer);
+                printf("<- Buffer: \n[%s]. BufLen: [%d]\n",buffer,strlen(buffer));
                 int r = write(ssockfd,buffer,sizeof(buffer));
                 if(r<0)
                     perror("write error select");
+                if(closeR&&closeS)
+                    break;
             }
         }
         if(FD_ISSET(ssockfd, &active_set)){
@@ -243,12 +254,14 @@ int redirection_select(int ssockfd, int rsockfd){
                     break;
             }
             else{
-                printf("-> Buffer: \n[%s]\n",buffer);
+                printf("-> Buffer: \n[%s]. BufLen: [%d]\n",buffer,strlen(buffer));
                 int r = write(rsockfd,buffer,sizeof(buffer));
                 if(r<0)
                     perror("write error select");
                 //Need Sleep here 
                 sleep(1);
+                if(closeR&&closeS)
+                    break;
             }
         }
     }
