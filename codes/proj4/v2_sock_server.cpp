@@ -26,7 +26,6 @@ int connectTCP(const char* host,const char* port);
 int redirection_select(int ssockfd, int rsockfd);
 int passiveTCP(int listen_port);
 
-struct sockaddr_in servv_addr;
 
 int main(int argc, char** argv){
     int listen_port, socketfd, ssockfd, cli_addr_size;
@@ -40,8 +39,6 @@ int main(int argc, char** argv){
     if((socketfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         perror("socks server: socket() error");    
     
-    int isSetSockOK = 1;
-    setsockopt(socketfd,SOL_SOCKET, SO_REUSEADDR, &isSetSockOK, sizeof(int) );
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -67,31 +64,26 @@ int main(int argc, char** argv){
             perror("fork() error");
         }
         else if(child_pid == 0){                    //Child process
-            //close(socketfd);
+            close(socketfd);
             cerr<<"inchild proces"<<endl;
-            unsigned char buffer[BUFFER_SIZE];
-            unsigned char package[8];
+            char buffer[BUFFER_SIZE];
+            unsigned char package[BUFFER_SIZE];
             memset(buffer,0,BUFFER_SIZE);
-            memset(package,0,8);
+            memset(package,0,BUFFER_SIZE);
             int n, deny_access, rep_CD, rsockfd;
             int done=0;
 
             //while(done == 0){
                 //reading data
-                perror("Before Read\n");
-                n = read(ssockfd, buffer, 8);
-                printf("READ REQ: size: %d\n",n);
-                char t;
-                while(read(ssockfd, &t, 1) == 1 && t != 0) ; //recv data
-
+                n = read(ssockfd, buffer, BUFFER_SIZE);
                 unsigned char VN = buffer[0];
                 unsigned char CD = buffer[1] ;
                 unsigned int DST_PORT = buffer[2] << 8 | buffer[3] ;
                 unsigned int DST_IP = buffer[4] << 24 | buffer[5] << 16 | buffer[6] << 8 |  buffer[7] ;
-                unsigned char* USER_ID = buffer + 8 ;
+                char* USER_ID = buffer + 8 ;
                 deny_access = check_socksconf(DST_IP);
                 
-                printf("Read Buffer: [%x] Buffer Len:[%d]\n",buffer,sizeof(buffer));
+                printf("Read Buffer: [%h] Buffer Len:[%d]\n",buffer,strlen(buffer));
                 printf("VN: %d\n",VN);
                 printf("Dest IP:[%u]. Dest Port:[%u]",DST_IP&0xFFFFFFFF, DST_PORT&0xFFFFFFFF);
                 //init return package
@@ -136,12 +128,6 @@ int main(int argc, char** argv){
                         
                         //Connect to DEST
                         rsockfd = connectTCP(str_ip.c_str(),str_port.c_str());
-                        /*sockaddr_in dest_addr;
-                        dest_addr.sin_family = AF_INET;
-                        dest_addr.sin_port = DST_PORT;
-                        dest_addr.sin_addr.s_addr = DST_IP;
-                        //addr = (unsigned char *) &hdr4.destaddr;
-                        */
                         if(rsockfd<=0)
                             package[1] = (unsigned char) 91 ; // 90 or 91 
                         
@@ -156,43 +142,24 @@ int main(int argc, char** argv){
                     else if(CD == 2){
                         printf("**** Inside BIND\n");
                         int psockfd;
-                        int listen_port = 0;
+                        //assume listening to port 211
+                        int listen_port = 211;
                         int sockfd_in;
-                        struct sockaddr_in sock_addr, new_addr;
-                        int a = sizeof(sock_addr);
-                        //getsockname(sock, (struct sockaddr *) &sock_addr, (socklen_t *)&a);
+                        struct sockaddr_in cli_addr;
                         int cli_addr_size;
                         package[1] = (unsigned char) 90 ; // 90 or 91 
-                        package[2] =  1234/256; // 90 or 91 
-                        package[3] = 1234%256; // 90 or 91 
-                        //package[2] = listen_port / 256; 
-                        //package[3] = listen_port % 256; 
+                        package[2] = listen_port / 256; 
+                        package[3] = listen_port % 256; 
                         for(int k=4; k<=7; k++)
                             package[k] = 0;
 
                         psockfd = passiveTCP(listen_port); 
-                        
-                        getsockname(psockfd, (struct sockaddr *) &sock_addr, (socklen_t *)&a);
-                        /*uint16_t ii = sock_addr.sin_port;
-                        unsigned int ii1 = ii/256;
-                        unsigned int ii2 = ii%256;
-                        package[2] = (unsigned char) ii1;
-                        package[3] = (unsigned char) ii2;
-                        //package[3] = sock_addr.sin_port % 256;
-                        */
-                        
-                        write(ssockfd, package, 8);
-                        //write(psockfd, package, sizeof(package));
-                        printf("package 2 3[%x][%x]\n",package[2],package[3]);
-                        a = sizeof(new_addr);
-                        printf("BIND. before accept\n");
-                        //sockfd_in = accept(psockfd, (struct sockaddr*) &servv_addr, (socklen_t*)&a);
-                        sockfd_in = accept(psockfd, (struct sockaddr*) &new_addr, (socklen_t*)&a);
-                        printf("BIND. after accept\n");
+                        write(sockfd_in, package, sizeof(package));
+                        sockfd_in = accept(psockfd, (struct sockaddr*) &cli_addr, (socklen_t*)&cli_addr_size);
                         if(sockfd_in < 0){
                             perror("(passive) accept error");
                         }else{
-                            write(ssockfd, package, 8);
+                            write(sockfd_in, package, sizeof(package));
                             //sleep(1);
                             redirection_select(ssockfd, sockfd_in);
                         }
@@ -202,10 +169,10 @@ int main(int argc, char** argv){
                         perror("ERROR CD unknown: not connect not bind");
 
                     }
-                //}
-            }
+                }
+           // }
         }
-        else{                                       //Parent process
+        else{    //Parent process
             close(ssockfd);       
             cerr<<"### in parent process\n\n"<<endl;
 
@@ -214,99 +181,9 @@ int main(int argc, char** argv){
     }
 
 
-    return 0;    
+return 0;    
 }
 
-/*
-   int redirection_select(int ssockfd, int rsockfd){
-   fd_set read_set, active_set;
-   int ndfs, redirect;
-   FD_ZERO(&read_set);
-   FD_ZERO(&active_set);
-   FD_SET(rsockfd, &read_set);
-   FD_SET(ssockfd, &read_set);
-   ndfs = rsockfd>ssockfd?rsockfd:ssockfd;
-   ndfs++;
-   char buffer[BUFFER_SIZE];
-   int closeS, closeR;
-   closeS = 0;
-   closeR = 0;
-   while(1){
-   active_set = read_set;
-   int nready = select(ndfs, &active_set, (fd_set*)0, (fd_set*)0, (struct timeval*)0 );
-   if(nready<0){
-   perror("select");
-   break;
-   }
-   if(FD_ISSET(rsockfd, &active_set)){
-   memset(buffer,0,BUFFER_SIZE);
-// sleep(1);
-int ret = read(rsockfd, buffer, BUFFER_SIZE);
-buffer[ret] = '\0';
-if(ret<0){
-perror("read error rsockfd");
-//done = 1;
-break;
-
-}else if(ret==0){
-perror("ret == 0");    
-FD_CLR(rsockfd,&active_set);
-closeR = 1;
-shutdown(rsockfd,SHUT_RD);
-shutdown(ssockfd,SHUT_RD);
-//printf("-> Buffer: \n[%s]\n",buffer);
-//write(rsockfd,buffer,sizeof(buffer));
-break;
-if(closeR&&closeS)
-break;
-}
-else{
-printf("<- Buffer: \n[%s]. BufLen: [%d]\n",buffer,strlen(buffer));
-int r = write(ssockfd,buffer,strlen(buffer));
-if(r<0)
-perror("write error select");
-if(closeR&&closeS)
-break;
-}
-}
-if(FD_ISSET(ssockfd, &active_set)){
-memset(buffer,0,BUFFER_SIZE);
-int ret = read(ssockfd, buffer, BUFFER_SIZE);
-buffer[ret] = '\0';
-if(ret<0){
-perror("read error ssockfd");
-//done = 1;
-break;
-}
-else if(ret==0){
-perror("ret == 0");    
-FD_CLR(ssockfd,&active_set);
-closeS = 1;
-shutdown(rsockfd,SHUT_RD);
-shutdown(ssockfd,SHUT_RD);
-//printf("-> Buffer: \n[%s]\n",buffer);
-//write(rsockfd,buffer,sizeof(buffer));
-break;
-if(closeR&&closeS)
-break;
-}
-else{
-    printf("-> Buffer: \n[%s]. BufLen: [%d]\n",buffer,strlen(buffer));
-    int r = write(rsockfd,buffer,strlen(buffer));
-    if(r<0)
-        perror("write error select");
-    //Need Sleep here 
-    sleep(1);
-    if(closeR&&closeS)
-        break;
-}
-}
-}
-close(rsockfd);
-close(ssockfd);
-return 0;
-}
-*/
 
 int redirection_select(int ssock, int rsock){
     int nfds, n, fd, rc, i;
@@ -452,9 +329,9 @@ int redirection_select(int ssock, int rsock){
 
     close(ssock);
     close(rsock);
-    return 0;
-}
 
+return 0;
+}
 int check_socksconf(unsigned int ip){
     
 
@@ -463,24 +340,20 @@ return 0;
 
 int passiveTCP(int listen_port){
     int sockfd;
+    struct sockaddr_in serv_addr, cli_addr;
     
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if(sockfd < 0){
+    if((sockfd = socket(AF_INET, SOCK_STREAM, 0) < 0)){
         perror("socker error passive");
     }
+    bzero((char*) &serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serv_addr.sin_port = htons(listen_port);
 
-
-    bzero((char*) &servv_addr, sizeof(servv_addr));
-    servv_addr.sin_family = AF_INET;
-    servv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servv_addr.sin_port = htons(1234);
-
-    if(bind(sockfd, (struct sockaddr*) &servv_addr, sizeof(servv_addr)) < 0)
+    if(bind(sockfd, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)
         perror("socks server: bind() error");
 
-    int n = listen(sockfd,MAX_CONN);
-    if(n<0)
-        perror("listen err:");
+    listen(sockfd,MAX_CONN);
     printf("now listening to port: %d\n",listen_port);
 
 return sockfd;
